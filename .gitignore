@@ -1,0 +1,41 @@
+# Ignore compiled binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Ignore test binary, built with `go test -c`
+*.test
+
+# Ignore output of the go coverage tool
+*.out
+
+# Ignore dependency directories
+/vendor/
+
+# Ignore environment files
+.env
+.env.local
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore log files
+*.log
+
+# Ignore build artifacts
+/tmp/
+/dist/
+
+# Ignore air tmp directory (if using air for hot reload)
+/tmp/
