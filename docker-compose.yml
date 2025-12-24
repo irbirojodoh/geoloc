@@ -1,22 +1,21 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgis/postgis:15-3.3
-    container_name: geoloc_postgres
+  cassandra:
+    image: cassandra:4.1
+    container_name: geoloc_cassandra
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: geobackend
+      - CASSANDRA_CLUSTER_NAME=geoloc
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
     ports:
-      - "5432:5432"
+      - "9042:9042"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d
+      - cassandra_data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d geobackend"]
-      interval: 10s
-      timeout: 5s
+      test: [ "CMD-SHELL", "cqlsh -e 'describe cluster'" ]
+      interval: 30s
+      timeout: 10s
       retries: 5
 
   redis:
@@ -27,11 +26,11 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
 
 volumes:
-  postgres_data:
+  cassandra_data:
   redis_data:

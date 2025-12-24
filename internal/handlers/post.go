@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -9,13 +10,13 @@ import (
 )
 
 // CreatePost handles POST /api/v1/posts
-func CreatePost(repo *data.PostRepository) gin.HandlerFunc {
+func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.CreatePostRequest
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid request body",
+				"error":   "Invalid request body",
 				"details": err.Error(),
 			})
 			return
@@ -36,10 +37,27 @@ func CreatePost(repo *data.PostRepository) gin.HandlerFunc {
 			return
 		}
 
-		post, err := repo.CreatePost(c.Request.Context(), &req)
+		// Validate media URLs (max 4)
+		if !req.ValidateMediaURLs() {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Maximum 4 media URLs allowed",
+			})
+			return
+		}
+
+		// Validate user exists
+		exists, err := userRepo.UserExists(c.Request.Context(), req.UserID)
+		if err != nil || !exists {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "User not found",
+			})
+			return
+		}
+
+		post, err := postRepo.CreatePost(c.Request.Context(), &req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to create post",
+				"error":   "Failed to create post",
 				"details": err.Error(),
 			})
 			return
@@ -47,7 +65,7 @@ func CreatePost(repo *data.PostRepository) gin.HandlerFunc {
 
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "Post created successfully",
-			"post": post,
+			"post":    post,
 		})
 	}
 }
@@ -59,7 +77,7 @@ func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
 
 		if err := c.ShouldBindQuery(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Invalid query parameters",
+				"error":   "Invalid query parameters",
 				"details": err.Error(),
 			})
 			return
@@ -89,7 +107,7 @@ func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to fetch feed",
+				"error":   "Failed to fetch feed",
 				"details": err.Error(),
 			})
 			return
@@ -97,6 +115,53 @@ func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Feed fetched successfully",
+			"count":   len(posts),
+			"posts":   posts,
+		})
+	}
+}
+
+// GetPost handles GET /api/v1/posts/:id
+func GetPost(repo *data.PostRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+
+		post, err := repo.GetPostByID(c.Request.Context(), id)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "Post not found",
+				})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to fetch post",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"post": post,
+		})
+	}
+}
+
+// GetUserPosts handles GET /api/v1/users/:id/posts
+func GetUserPosts(repo *data.PostRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.Param("id")
+
+		posts, err := repo.GetPostsByUser(c.Request.Context(), userID, 50)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to fetch user posts",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
 			"count": len(posts),
 			"posts": posts,
 		})

@@ -1,0 +1,164 @@
+{
+  "info": {
+    "name": "Geoloc API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/register",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"johndoe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"secret123\",\n  \"full_name\": \"John Doe\",\n  \"phone_number\": \"+6281234567890\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"john@example.com\",\n  \"password\": \"secret123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/refresh",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"YOUR_REFRESH_TOKEN_HERE\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Feed (Public)",
+      "item": [
+        {
+          "name": "Get Nearby Feed",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feed?latitude=40.7589&longitude=-73.9851&radius_km=10&limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "feed"],
+              "query": [
+                {"key": "latitude", "value": "40.7589"},
+                {"key": "longitude", "value": "-73.9851"},
+                {"key": "radius_km", "value": "10"},
+                {"key": "limit", "value": "50"}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (Protected)",
+      "item": [
+        {
+          "name": "Get User by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get User by Username",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/username/johndoe",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get User's Posts",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/posts",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Posts (Protected)",
+      "item": [
+        {
+          "name": "Create Post",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/posts",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"USER_UUID_HERE\",\n  \"content\": \"Hello from Times Square!\",\n  \"media_urls\": [\"https://example.com/photo1.jpg\"],\n  \"latitude\": 40.7589,\n  \"longitude\": -73.9851\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Post by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/posts/POST_UUID_HERE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

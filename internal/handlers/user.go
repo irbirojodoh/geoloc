@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -24,7 +25,7 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 		user, err := repo.CreateUser(c.Request.Context(), &req)
 		if err != nil {
 			// Check for unique constraint violations
-			if contains(err.Error(), "duplicate key") || contains(err.Error(), "unique constraint") {
+			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "already exists") {
 				c.JSON(http.StatusConflict, gin.H{
 					"error": "Username or email already exists",
 				})
@@ -49,7 +50,7 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 func GetUser(repo *data.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
-		
+
 		// Validate UUID format (basic check)
 		if len(id) != 36 {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -60,7 +61,7 @@ func GetUser(repo *data.UserRepository) gin.HandlerFunc {
 
 		user, err := repo.GetUserByID(c.Request.Context(), id)
 		if err != nil {
-			if contains(err.Error(), "no rows") {
+			if strings.Contains(err.Error(), "not found") {
 				c.JSON(http.StatusNotFound, gin.H{
 					"error": "User not found",
 				})
@@ -87,7 +88,7 @@ func GetUserByUsername(repo *data.UserRepository) gin.HandlerFunc {
 
 		user, err := repo.GetUserByUsername(c.Request.Context(), username)
 		if err != nil {
-			if contains(err.Error(), "no rows") {
+			if strings.Contains(err.Error(), "not found") {
 				c.JSON(http.StatusNotFound, gin.H{
 					"error": "User not found",
 				})
@@ -105,18 +106,4 @@ func GetUserByUsername(repo *data.UserRepository) gin.HandlerFunc {
 			"user": user,
 		})
 	}
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

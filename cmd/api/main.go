@@ -1,16 +1,16 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 
+	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/handlers"
 )
@@ -21,31 +21,34 @@ func main() {
 		log.Println("No .env file found, using environment variables")
 	}
 
-	// Database connection
-	dbURL := fmt.Sprintf(
-		"postgres://%s:%s@%s:%s/%s",
-		getEnv("DB_USER", "user"),
-		getEnv("DB_PASSWORD", "password"),
-		getEnv("DB_HOST", "localhost"),
-		getEnv("DB_PORT", "5432"),
-		getEnv("DB_NAME", "geobackend"),
-	)
+	// Cassandra connection
+	cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
+	cluster.Port = 9042
+	cluster.Keyspace = getEnv("CASSANDRA_KEYSPACE", "geoloc")
+	cluster.Consistency = gocql.Quorum
+	cluster.Timeout = 10 * time.Second
+	cluster.ConnectTimeout = 10 * time.Second
 
-	dbPool, err := pgxpool.New(context.Background(), dbURL)
+	// Retry connection with backoff
+	var session *gocql.Session
+	var err error
+	for i := 0; i < 5; i++ {
+		session, err = cluster.CreateSession()
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to Cassandra (attempt %d/5): %v", i+1, err)
+		time.Sleep(time.Duration(i+1) * 2 * time.Second)
+	}
 	if err != nil {
-		log.Fatalf("Unable to create connection pool: %v\n", err)
+		log.Fatalf("Unable to connect to Cassandra after 5 attempts: %v", err)
 	}
-	defer dbPool.Close()
-
-	// Test connection
-	if err := dbPool.Ping(context.Background()); err != nil {
-		log.Fatalf("Unable to ping database: %v\n", err)
-	}
-	log.Println("Successfully connected to database")
+	defer session.Close()
+	log.Println("Successfully connected to Cassandra")
 
 	// Initialize repositories
-	postRepo := data.NewPostRepository(dbPool)
-	userRepo := data.NewUserRepository(dbPool)
+	postRepo := data.NewPostRepository(session)
+	userRepo := data.NewUserRepository(session)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -59,20 +62,35 @@ func main() {
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		if err := session.Query("SELECT now() FROM system.local").Exec(); err != nil {
+			c.JSON(500, gin.H{"status": "unhealthy", "error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"status": "ok", "database": "cassandra"})
 	})
 
-	// API routes
+	// ============== PUBLIC ROUTES ==============
+	// Auth routes (no authentication required)
+	router.POST("/auth/register", handlers.Register(userRepo))
+	router.POST("/auth/login", handlers.Login(userRepo))
+	router.POST("/auth/refresh", handlers.Refresh)
+
+	// Public feed (read-only)
+	router.GET("/api/v1/feed", handlers.GetFeed(postRepo))
+
+	// ============== PROTECTED ROUTES ==============
+	// Routes that require authentication
 	api := router.Group("/api/v1")
+	api.Use(auth.AuthRequired())
 	{
 		// User routes
-		api.POST("/users", handlers.CreateUser(userRepo))
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
+		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo))
 
-		// Post routes
-		api.POST("/posts", handlers.CreatePost(postRepo))
-		api.GET("/feed", handlers.GetFeed(postRepo))
+		// Post routes (authenticated)
+		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
+		api.GET("/posts/:id", handlers.GetPost(postRepo))
 	}
 
 	// Start server

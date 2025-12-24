@@ -3,92 +3,163 @@ package data
 import (
 	"context"
 	"fmt"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/gocql/gocql"
 )
 
 type UserRepository struct {
-	db *pgxpool.Pool
+	session *gocql.Session
 }
 
-func NewUserRepository(db *pgxpool.Pool) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(session *gocql.Session) *UserRepository {
+	return &UserRepository{session: session}
 }
 
 // CreateUser inserts a new user into the database
 func (r *UserRepository) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
-	query := `
-		INSERT INTO users (username, email, full_name, bio)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, username, email, full_name, bio, created_at, updated_at
-	`
+	userID := gocql.TimeUUID()
+	now := time.Now()
 
-	user := &User{}
-	err := r.db.QueryRow(ctx, query, req.Username, req.Email, req.FullName, req.Bio).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Email,
-		&user.FullName,
-		&user.Bio,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
+	err := r.session.Query(`
+		INSERT INTO users (id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, userID, req.Username, req.Email, req.FullName, req.Bio, req.PhoneNumber, req.ProfilePictureURL, req.PasswordHash, now, now).
+		WithContext(ctx).Exec()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	return user, nil
+	return &User{
+		ID:                userID.String(),
+		Username:          req.Username,
+		Email:             req.Email,
+		FullName:          req.FullName,
+		Bio:               req.Bio,
+		PhoneNumber:       req.PhoneNumber,
+		ProfilePictureURL: req.ProfilePictureURL,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}, nil
 }
 
 // GetUserByID retrieves a user by their ID
 func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*User, error) {
-	query := `
-		SELECT id, username, email, full_name, bio, created_at, updated_at
-		FROM users
-		WHERE id = $1
-	`
+	userID, err := gocql.ParseUUID(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user_id: %w", err)
+	}
 
-	user := &User{}
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Email,
-		&user.FullName,
-		&user.Bio,
-		&user.CreatedAt,
-		&user.UpdatedAt,
+	var user User
+	err = r.session.Query(`
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		FROM users
+		WHERE id = ?
+	`, userID).WithContext(ctx).Scan(
+		&userID, &user.Username, &user.Email, &user.FullName,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, fmt.Errorf("user not found")
+		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	return user, nil
+	user.ID = userID.String()
+	return &user, nil
 }
 
 // GetUserByUsername retrieves a user by their username
 func (r *UserRepository) GetUserByUsername(ctx context.Context, username string) (*User, error) {
-	query := `
-		SELECT id, username, email, full_name, bio, created_at, updated_at
-		FROM users
-		WHERE username = $1
-	`
+	var user User
+	var userID gocql.UUID
 
-	user := &User{}
-	err := r.db.QueryRow(ctx, query, username).Scan(
-		&user.ID,
-		&user.Username,
-		&user.Email,
-		&user.FullName,
-		&user.Bio,
-		&user.CreatedAt,
-		&user.UpdatedAt,
+	err := r.session.Query(`
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		FROM users
+		WHERE username = ?
+		ALLOW FILTERING
+	`, username).WithContext(ctx).Scan(
+		&userID, &user.Username, &user.Email, &user.FullName,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, fmt.Errorf("user not found")
+		}
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	return user, nil
+	user.ID = userID.String()
+	return &user, nil
+}
+
+// GetUserByEmail retrieves a user by their email
+func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	var user User
+	var userID gocql.UUID
+
+	err := r.session.Query(`
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		FROM users
+		WHERE email = ?
+		ALLOW FILTERING
+	`, email).WithContext(ctx).Scan(
+		&userID, &user.Username, &user.Email, &user.FullName,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	user.ID = userID.String()
+	return &user, nil
+}
+
+// UpdateUser updates user profile fields
+func (r *UserRepository) UpdateUser(ctx context.Context, id string, fullName, bio, profilePictureURL string) (*User, error) {
+	userID, err := gocql.ParseUUID(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user_id: %w", err)
+	}
+
+	now := time.Now()
+	err = r.session.Query(`
+		UPDATE users
+		SET full_name = ?, bio = ?, profile_picture_url = ?, updated_at = ?
+		WHERE id = ?
+	`, fullName, bio, profilePictureURL, now, userID).WithContext(ctx).Exec()
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return r.GetUserByID(ctx, id)
+}
+
+// UserExists checks if a user with given ID exists
+func (r *UserRepository) UserExists(ctx context.Context, id string) (bool, error) {
+	userID, err := gocql.ParseUUID(id)
+	if err != nil {
+		return false, nil
+	}
+
+	var count int
+	err = r.session.Query(`
+		SELECT COUNT(*) FROM users WHERE id = ?
+	`, userID).WithContext(ctx).Scan(&count)
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
