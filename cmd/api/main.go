@@ -13,6 +13,9 @@ import (
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/handlers"
+	"social-geo-go/internal/middleware"
+	"social-geo-go/internal/push"
+	"social-geo-go/internal/storage"
 )
 
 func main() {
@@ -46,6 +49,14 @@ func main() {
 	defer session.Close()
 	log.Println("Successfully connected to Cassandra")
 
+	// Initialize storage
+	uploadPath := getEnv("UPLOAD_PATH", "./uploads")
+	baseURL := getEnv("BASE_URL", "http://localhost:8080")
+	store := storage.NewLocalStorage(uploadPath, baseURL+"/uploads")
+
+	// Initialize push service
+	pushService := push.NewLogPushService()
+
 	// Initialize repositories
 	postRepo := data.NewPostRepository(session)
 	userRepo := data.NewUserRepository(session)
@@ -58,12 +69,18 @@ func main() {
 	// Setup Gin router
 	router := gin.Default()
 
+	// Global rate limiter (100 requests per minute per IP)
+	router.Use(middleware.RateLimitByIP(100, time.Minute))
+
 	// CORS configuration
 	config := cors.DefaultConfig()
 	config.AllowOrigins = []string{"*"}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	router.Use(cors.New(config))
+
+	// Serve uploaded files
+	router.Static("/uploads", uploadPath)
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
@@ -75,16 +92,12 @@ func main() {
 	})
 
 	// ============== PUBLIC ROUTES ==============
-	// Auth routes (no authentication required)
 	router.POST("/auth/register", handlers.Register(userRepo))
 	router.POST("/auth/login", handlers.Login(userRepo))
 	router.POST("/auth/refresh", handlers.Refresh)
-
-	// Public feed (read-only)
 	router.GET("/api/v1/feed", handlers.GetFeed(postRepo))
 
 	// ============== PROTECTED ROUTES ==============
-	// Routes that require authentication
 	api := router.Group("/api/v1")
 	api.Use(auth.AuthRequired())
 	{
@@ -133,11 +146,20 @@ func main() {
 		// Search routes
 		api.GET("/search/users", handlers.SearchUsers(userRepo))
 		api.GET("/search/posts", handlers.SearchPosts(postRepo))
+
+		// Upload routes
+		api.POST("/upload/avatar", handlers.UploadAvatar(store))
+		api.POST("/upload/post", handlers.UploadPostMedia(store))
+
+		// Device registration (push notifications)
+		api.POST("/devices", handlers.RegisterDevice(pushService))
+		api.DELETE("/devices", handlers.UnregisterDevice(pushService))
 	}
 
 	// Start server
 	port := getEnv("PORT", "8080")
 	log.Printf("Server starting on port %s\n", port)
+	log.Printf("Uploads directory: %s\n", uploadPath)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v\n", err)
 	}
