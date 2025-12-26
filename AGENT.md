@@ -1,152 +1,103 @@
 # AGENT.md - Geoloc Project Context
 
-## Project Overview
+## Overview
 
-**Geoloc** is a hyper-local social media backend built with Go and Cassandra. It enables geospatial-based social features where users can create posts with location data and retrieve feeds based on physical proximity using **geohashing**.
+**Geoloc** is a hyper-local social media backend built with Go and Cassandra. Features geospatial posts, social interactions, and location-based subscriptions.
 
 ---
 
 ## Tech Stack
 
-| Component        | Technology                          |
-|------------------|-------------------------------------|
-| Language         | Go 1.21+                            |
-| Web Framework    | Gin                                 |
-| Database         | Apache Cassandra 4.1                |
-| Cache            | Redis (infrastructure ready)        |
-| Authentication   | JWT (golang-jwt/jwt/v5)             |
-| Password Hash    | SHA3-512 → SHA-256 (double chain)   |
-| Geospatial       | Geohashing (mmcloughlin/geohash)    |
-
----
-
-## Project Structure
-
-```
-geoloc/
-├── cmd/api/main.go
-├── internal/
-│   ├── auth/
-│   │   ├── password.go, jwt.go, middleware.go
-│   ├── data/
-│   │   ├── models.go, geohash.go
-│   │   ├── query.go, user_query.go
-│   │   ├── like_query.go, comment_query.go
-│   │   ├── follow_query.go, location_follow_query.go
-│   │   └── notification_query.go
-│   └── handlers/
-│       ├── auth.go, user.go, post.go
-│       ├── like.go, comment.go
-│       ├── profile.go, follow.go
-│       ├── location.go, notification.go
-│       └── search.go
-├── migrations/cassandra_schema.cql
-└── docker-compose.yml
-```
+| Component | Technology |
+|-----------|------------|
+| Language | Go 1.21+ |
+| Framework | Gin |
+| Database | Apache Cassandra 4.1 |
+| Auth | JWT (15min access, 7d refresh) |
+| Password | SHA3-512 → SHA-256 |
+| Geospatial | Geohashing |
 
 ---
 
 ## API Endpoints
 
-### Public Routes
-| Method | Endpoint         | Description          |
-|--------|------------------|----------------------|
-| GET    | `/health`        | Health check         |
-| GET    | `/api/v1/feed`   | Get nearby posts     |
-| POST   | `/auth/register` | Register user        |
-| POST   | `/auth/login`    | Login                |
-| POST   | `/auth/refresh`  | Refresh token        |
+### Auth (Public)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/auth/register` | Register |
+| POST | `/auth/login` | Login |
+| POST | `/auth/refresh` | Refresh token |
+| GET | `/api/v1/feed` | Public feed |
 
-### Protected Routes (Require `Authorization: Bearer <token>`)
+### Protected (Require Bearer token)
 
 **Profile & Users**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| PUT | `/users/me` | Update profile |
-| GET | `/users/:id` | Get user |
-| GET | `/users/username/:name` | Get by username |
-| GET | `/users/:id/posts` | User's posts |
+- `PUT /users/me` - Update profile
+- `GET /users/:id` - Get user
+- `GET /users/:id/posts` - User's posts
 
 **Follows**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/users/:id/follow` | Follow user |
-| DELETE | `/users/:id/follow` | Unfollow |
-| GET | `/users/:id/followers` | Get followers |
-| GET | `/users/:id/following` | Get following |
+- `POST /users/:id/follow` - Follow
+- `DELETE /users/:id/follow` - Unfollow
+- `GET /users/:id/followers` - Followers
+- `GET /users/:id/following` - Following
 
 **Posts**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/posts` | Create post |
-| GET | `/posts/:id` | Get post |
-| POST | `/posts/:id/like` | Like post |
-| DELETE | `/posts/:id/like` | Unlike |
-| POST | `/posts/:id/comments` | Comment |
-| GET | `/posts/:id/comments` | Get comments |
+- `POST /posts` - Create post
+- `GET /posts/:id` - Get post
+- `POST/DELETE /posts/:id/like` - Like/unlike
+- `POST /posts/:id/comments` - Comment
+- `GET /posts/:id/comments` - Get comments
 
 **Comments**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/comments/:id/reply` | Reply (max 3 deep) |
-| POST | `/comments/:id/like` | Like comment |
-| DELETE | `/comments/:id/like` | Unlike |
-| DELETE | `/comments/:id` | Delete |
+- `POST /comments/:id/reply` - Reply (max 3 deep)
+- `POST/DELETE /comments/:id/like` - Like/unlike
+- `DELETE /comments/:id` - Delete
 
-**Location Follows**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/locations/follow` | Follow area |
-| DELETE | `/locations/:geohash/follow` | Unfollow |
-| GET | `/locations/following` | Get followed |
+**Locations**
+- `POST /locations/follow` - Follow area
+- `DELETE /locations/:geohash/follow` - Unfollow
+- `GET /locations/following` - Get followed
 
 **Notifications**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/notifications` | Get all |
-| PUT | `/notifications/:id/read` | Mark read |
-| PUT | `/notifications/read-all` | Mark all read |
+- `GET /notifications` - Get all
+- `PUT /notifications/:id/read` - Mark read
+- `PUT /notifications/read-all` - Mark all read
 
 **Search**
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/search/users?q=` | Search users |
-| GET | `/search/posts?q=` | Search posts |
+- `GET /search/users?q=` - Search users
+- `GET /search/posts?q=` - Search posts
+
+**Upload**
+- `POST /upload/avatar` - Avatar (max 5MB)
+- `POST /upload/post` - Media (max 50MB)
+
+**Devices (Push)**
+- `POST /devices` - Register token
+- `DELETE /devices` - Unregister
 
 ---
 
-## Database Tables
+## Features
 
-| Table | Purpose |
-|-------|---------|
-| `users` | User profiles, auth |
-| `posts_by_geohash` | Proximity queries |
-| `posts_by_id` | Direct lookups |
-| `posts_by_user` | User's posts |
-| `likes` | Post/comment likes |
-| `like_counts` | Like counters |
-| `comments` | Nested comments |
-| `comments_by_id` | Comment lookups |
-| `comment_counts` | Comment counters |
-| `follows` | Who user follows |
-| `followers` | User's followers |
-| `follow_counts` | Follow counters |
-| `location_follows` | Subscribed areas |
-| `notifications` | User notifications |
+- ✅ JWT Authentication
+- ✅ Geolocation posts & feed
+- ✅ Likes & nested comments (3 levels)
+- ✅ Follow users & locations
+- ✅ Notifications
+- ✅ Search (users/posts)
+- ✅ Image/video upload (local, S3 ready)
+- ✅ Rate limiting (100 req/min)
+- ✅ Push notifications (template)
 
 ---
 
-## Quick Commands
+## Quick Start
 
 ```bash
-# Start infrastructure
 docker compose up -d
-
-# Apply schema
 docker cp migrations/cassandra_schema.cql geoloc_cassandra:/tmp/
 docker exec -it geoloc_cassandra cqlsh -f /tmp/cassandra_schema.cql
-
-# Run server
 go run cmd/api/main.go
 ```
 
@@ -156,7 +107,9 @@ go run cmd/api/main.go
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CASSANDRA_HOST` | `localhost` | Cassandra host |
+| `CASSANDRA_HOST` | `localhost` | DB host |
 | `CASSANDRA_KEYSPACE` | `geoloc` | Keyspace |
 | `JWT_SECRET` | (default) | JWT secret |
 | `PORT` | `8080` | Server port |
+| `UPLOAD_PATH` | `./uploads` | Upload dir |
+| `BASE_URL` | `http://localhost:8080` | Base URL |
