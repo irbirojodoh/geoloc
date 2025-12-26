@@ -149,6 +149,9 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 			return
 		}
 
+		// Update last seen (non-blocking, ignore errors)
+		go userRepo.UpdateLastSeen(c.Request.Context(), user.ID, c.ClientIP())
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":       "Login successful",
 			"access_token":  tokens.AccessToken,

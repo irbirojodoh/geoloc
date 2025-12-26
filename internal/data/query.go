@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -31,9 +32,9 @@ func (r *PostRepository) CreatePost(ctx context.Context, req *CreatePostRequest)
 
 	// Insert into posts_by_geohash
 	err = r.session.Query(`
-		INSERT INTO posts_by_geohash (geohash_prefix, created_at, post_id, user_id, content, media_urls, latitude, longitude, full_geohash)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, geohashPrefix, now, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash).
+		INSERT INTO posts_by_geohash (geohash_prefix, created_at, post_id, user_id, content, media_urls, latitude, longitude, full_geohash, ip_address, user_agent)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, geohashPrefix, now, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent).
 		WithContext(ctx).Exec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert into posts_by_geohash: %w", err)
@@ -41,9 +42,9 @@ func (r *PostRepository) CreatePost(ctx context.Context, req *CreatePostRequest)
 
 	// Insert into posts_by_id
 	err = r.session.Query(`
-		INSERT INTO posts_by_id (post_id, user_id, content, media_urls, latitude, longitude, geohash, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, now).
+		INSERT INTO posts_by_id (post_id, user_id, content, media_urls, latitude, longitude, geohash, ip_address, user_agent, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent, now).
 		WithContext(ctx).Exec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert into posts_by_id: %w", err)
@@ -51,9 +52,9 @@ func (r *PostRepository) CreatePost(ctx context.Context, req *CreatePostRequest)
 
 	// Insert into posts_by_user
 	err = r.session.Query(`
-		INSERT INTO posts_by_user (user_id, created_at, post_id, content, media_urls, latitude, longitude)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, userID, now, postID, req.Content, req.MediaURLs, req.Latitude, req.Longitude).
+		INSERT INTO posts_by_user (user_id, created_at, post_id, content, media_urls, latitude, longitude, ip_address, user_agent)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, userID, now, postID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, req.IPAddress, req.UserAgent).
 		WithContext(ctx).Exec()
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert into posts_by_user: %w", err)
@@ -204,5 +205,42 @@ func (r *PostRepository) GetPostsByUser(ctx context.Context, userIDStr string, l
 		return nil, fmt.Errorf("error iterating posts: %w", err)
 	}
 
+	return posts, nil
+}
+
+// SearchPosts searches for posts by content
+func (r *PostRepository) SearchPosts(ctx context.Context, query string, limit int) ([]Post, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	// Cassandra doesn't support full-text search
+	// In production, use Elasticsearch or similar
+	iter := r.session.Query(`
+		SELECT post_id, user_id, content, media_urls, latitude, longitude, geohash, created_at
+		FROM posts_by_id
+		LIMIT ?
+	`, limit*5).WithContext(ctx).Iter()
+
+	var posts []Post
+	var post Post
+	var postID, userID gocql.UUID
+	var mediaURLs []string
+
+	for iter.Scan(&postID, &userID, &post.Content, &mediaURLs, &post.Latitude, &post.Longitude, &post.Geohash, &post.CreatedAt) {
+		// Client-side filtering for content contains
+		if strings.Contains(strings.ToLower(post.Content), strings.ToLower(query)) {
+			post.ID = postID.String()
+			post.UserID = userID.String()
+			post.MediaURLs = mediaURLs
+			posts = append(posts, post)
+			if len(posts) >= limit {
+				break
+			}
+		}
+		mediaURLs = nil
+	}
+
+	iter.Close()
 	return posts, nil
 }

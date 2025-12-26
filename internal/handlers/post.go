@@ -54,6 +54,10 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 			return
 		}
 
+		// Capture IP address and user agent for tracking
+		req.IPAddress = c.ClientIP()
+		req.UserAgent = c.Request.UserAgent()
+
 		post, err := postRepo.CreatePost(c.Request.Context(), &req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{

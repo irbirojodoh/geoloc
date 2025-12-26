@@ -49,6 +49,11 @@ func main() {
 	// Initialize repositories
 	postRepo := data.NewPostRepository(session)
 	userRepo := data.NewUserRepository(session)
+	likeRepo := data.NewLikeRepository(session)
+	commentRepo := data.NewCommentRepository(session)
+	followRepo := data.NewFollowRepository(session)
+	locFollowRepo := data.NewLocationFollowRepository(session)
+	notifRepo := data.NewNotificationRepository(session)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -83,14 +88,51 @@ func main() {
 	api := router.Group("/api/v1")
 	api.Use(auth.AuthRequired())
 	{
+		// Profile
+		api.PUT("/users/me", handlers.UpdateProfile(userRepo))
+
 		// User routes
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
 		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo))
 
-		// Post routes (authenticated)
+		// Follow routes
+		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifRepo))
+		api.DELETE("/users/:id/follow", handlers.UnfollowUser(followRepo))
+		api.GET("/users/:id/followers", handlers.GetFollowers(followRepo))
+		api.GET("/users/:id/following", handlers.GetFollowing(followRepo))
+
+		// Post routes
 		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
 		api.GET("/posts/:id", handlers.GetPost(postRepo))
+
+		// Post likes
+		api.POST("/posts/:id/like", handlers.LikePost(likeRepo))
+		api.DELETE("/posts/:id/like", handlers.UnlikePost(likeRepo))
+
+		// Post comments
+		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo))
+		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo))
+
+		// Comment routes
+		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo))
+		api.POST("/comments/:id/like", handlers.LikeComment(likeRepo))
+		api.DELETE("/comments/:id/like", handlers.UnlikeComment(likeRepo))
+		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
+
+		// Location follow routes
+		api.POST("/locations/follow", handlers.FollowLocation(locFollowRepo))
+		api.DELETE("/locations/:geohash/follow", handlers.UnfollowLocation(locFollowRepo))
+		api.GET("/locations/following", handlers.GetFollowedLocations(locFollowRepo))
+
+		// Notification routes
+		api.GET("/notifications", handlers.GetNotifications(notifRepo))
+		api.PUT("/notifications/:id/read", handlers.MarkNotificationAsRead(notifRepo))
+		api.PUT("/notifications/read-all", handlers.MarkAllNotificationsAsRead(notifRepo))
+
+		// Search routes
+		api.GET("/search/users", handlers.SearchUsers(userRepo))
+		api.GET("/search/posts", handlers.SearchPosts(postRepo))
 	}
 
 	// Start server
