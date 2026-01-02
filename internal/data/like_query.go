@@ -36,7 +36,7 @@ func (r *LikeRepository) AddLike(ctx context.Context, req *LikeRequest) (*Like, 
 		VALUES (?, ?, ?, ?)
 	`, req.TargetType, targetID, userID, now).WithContext(ctx).Exec()
 	if err != nil {
-		return nil, fmt.Errorf("failed to add like: %w", err)
+		return nil, fmt.Errorf("ERROR: failed to add like: %w", err)
 	}
 
 	// Increment counter
@@ -44,9 +44,9 @@ func (r *LikeRepository) AddLike(ctx context.Context, req *LikeRequest) (*Like, 
 		UPDATE like_counts SET count = count + 1
 		WHERE target_type = ? AND target_id = ?
 	`, req.TargetType, targetID).WithContext(ctx).Exec()
+
 	if err != nil {
-		// Log but don't fail - counter is denormalized
-		fmt.Printf("Warning: failed to update like count: %v\n", err)
+		fmt.Printf("Warning: failed to update like counter: %v", err)
 	}
 
 	return &Like{
@@ -74,8 +74,9 @@ func (r *LikeRepository) RemoveLike(ctx context.Context, req *LikeRequest) error
 		DELETE FROM likes
 		WHERE target_type = ? AND target_id = ? AND user_id = ?
 	`, req.TargetType, targetID, userID).WithContext(ctx).Exec()
+
 	if err != nil {
-		return fmt.Errorf("failed to remove like: %w", err)
+		return fmt.Errorf("ERROR: failed to delete like: %w", err)
 	}
 
 	// Decrement counter
@@ -84,7 +85,7 @@ func (r *LikeRepository) RemoveLike(ctx context.Context, req *LikeRequest) error
 		WHERE target_type = ? AND target_id = ?
 	`, req.TargetType, targetID).WithContext(ctx).Exec()
 	if err != nil {
-		fmt.Printf("Warning: failed to update like count: %v\n", err)
+		fmt.Printf("WARNING: failed to update like counter: %v", err)
 	}
 
 	return nil

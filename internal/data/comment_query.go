@@ -53,24 +53,24 @@ func (r *CommentRepository) CreateComment(ctx context.Context, req *CreateCommen
 
 	now := time.Now()
 
+	batch := r.session.NewBatch(gocql.LoggedBatch)
+	batch.WithContext(ctx)
+
 	// Insert into comments table
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO comments (post_id, comment_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, postID, commentID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now).
-		WithContext(ctx).Exec()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create comment: %w", err)
-	}
+	`, postID, commentID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now)
 
 	// Insert into comments_by_id for direct lookups
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO comments_by_id (comment_id, post_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, commentID, postID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now).
-		WithContext(ctx).Exec()
+	`, commentID, postID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now)
+
+	err = r.session.ExecuteBatch(batch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert into comments_by_id: %w", err)
+		return nil, fmt.Errorf("ERROR: failed to create comment: %w", err)
 	}
 
 	// Increment comment count for post
@@ -219,26 +219,31 @@ func (r *CommentRepository) DeleteComment(ctx context.Context, commentID, userID
 	cid, _ := gocql.ParseUUID(commentID)
 	pid, _ := gocql.ParseUUID(comment.PostID)
 
+	batch := r.session.NewBatch(gocql.LoggedBatch)
+	batch.WithContext(ctx)
+
 	// Delete from comments_by_id
-	err = r.session.Query(`
+	batch.Query(`
 		DELETE FROM comments_by_id WHERE comment_id = ?
-	`, cid).WithContext(ctx).Exec()
-	if err != nil {
-		return fmt.Errorf("failed to delete from comments_by_id: %w", err)
-	}
+	`, cid)
 
 	// Delete from comments (need created_at for deletion)
-	err = r.session.Query(`
+	batch.Query(`
 		DELETE FROM comments WHERE post_id = ? AND created_at = ? AND comment_id = ?
-	`, pid, comment.CreatedAt, cid).WithContext(ctx).Exec()
+	`, pid, comment.CreatedAt, cid)
+
+	err = r.session.ExecuteBatch(batch)
 	if err != nil {
-		return fmt.Errorf("failed to delete from comments: %w", err)
+		return fmt.Errorf("ERROR: failed to delete comment: %w", err)
 	}
 
 	// Decrement comment count
-	r.session.Query(`
+	err = r.session.Query(`
 		UPDATE comment_counts SET count = count - 1 WHERE post_id = ?
 	`, pid).WithContext(ctx).Exec()
+	if err != nil {
+		fmt.Printf("Warning failed to decrement comment_counts: %v", err)
+	}
 
 	return nil
 }
