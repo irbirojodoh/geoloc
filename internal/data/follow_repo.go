@@ -34,8 +34,7 @@ func (r *FollowRepository) Follow(ctx context.Context, followerID, followingID s
 
 	now := time.Now()
 
-	batch := r.session.NewBatch(gocql.LoggedBatch)
-	batch.WithContext(ctx)
+	batch := r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
 
 	// Add to follows table
 	batch.Query(`
@@ -54,23 +53,20 @@ func (r *FollowRepository) Follow(ctx context.Context, followerID, followingID s
 		return fmt.Errorf("ERROR: failed to add follow: %w", err)
 	}
 
-	batch = r.session.NewBatch(gocql.LoggedBatch)
-	batch.WithContext(ctx)
+	counterBatch := r.session.NewBatch(gocql.CounterBatch).WithContext(ctx)
 
-	// Update following counter
-	batch.Query(`
-		UPDATE follow_counts SET following_count = following_count + 1
-		WHERE user_id = ?
-	`, fid)
+	counterBatch.Query(`
+        UPDATE follow_counts SET following_count = following_count + 1
+        WHERE user_id = ?
+    `, fid)
 
-	// Update followers counter
-	batch.Query(`
-		UPDATE follow_counts SET followers_count = followers_count + 1
-		WHERE user_id = ?
-	`, fgid)
+	counterBatch.Query(`
+        UPDATE follow_counts SET followers_count = followers_count + 1
+        WHERE user_id = ?
+    `, fgid)
 
-	err = r.session.ExecuteBatch(batch)
-	if err != nil {
+	if err := r.session.ExecuteBatch(counterBatch); err != nil {
+		// In a real system, you might want to retry this or log it to a queue
 		fmt.Printf("WARNING: failed to update follow counters: %v\n", err)
 	}
 
@@ -118,21 +114,12 @@ func (r *FollowRepository) Unfollow(ctx context.Context, followerID, followingID
 		return fmt.Errorf("ERROR: unfolllow failed: %w", err)
 	}
 
-	batch = r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+	counterBatch := r.session.NewBatch(gocql.CounterBatch).WithContext(ctx)
+	counterBatch.Query(`UPDATE follow_counts SET following_count = following_count - 1 WHERE user_id = ?`, fid)
+	counterBatch.Query(`UPDATE follow_counts SET followers_count = followers_count - 1 WHERE user_id = ?`, fgid)
 
-	// Update counters
-	batch.Query(`
-		UPDATE follow_counts SET following_count = following_count - 1
-		WHERE user_id = ?
-	`, fid)
-	batch.Query(`
-		UPDATE follow_counts SET followers_count = followers_count - 1
-		WHERE user_id = ?
-	`, fgid)
-
-	err = r.session.ExecuteBatch(batch)
-	if err != nil {
-		fmt.Printf("WARNING: failed to update unfolllow counter: %v\n", err)
+	if err := r.session.ExecuteBatch(counterBatch); err != nil {
+		fmt.Printf("WARNING: failed to update unfollow counters: %v\n", err)
 	}
 
 	return nil
