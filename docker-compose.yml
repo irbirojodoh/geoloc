@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   cassandra:
@@ -13,10 +13,26 @@ services:
     volumes:
       - cassandra_data:/var/lib/cassandra
     healthcheck:
-      test: [ "CMD-SHELL", "cqlsh -e 'describe cluster'" ]
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster'"]
       interval: 30s
       timeout: 10s
       retries: 5
+
+  cassandra-db-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra:
+        condition: service_healthy
+    volumes:
+      - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql
+      - ./migrations/mock_data.cql:/schema/mock_data.cql
+    entrypoint: ["sh", "-c"]
+    command: |
+      "echo 'Applying Schema...' &&
+       cqlsh cassandra -f /schema/cassandra_schema.cql &&
+       echo 'Seeding Mock Data...' &&
+       cqlsh cassandra -f /schema/mock_data.cql &&
+       echo 'Database Initialized!'"
 
   redis:
     image: redis:alpine
@@ -26,7 +42,7 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
