@@ -35,7 +35,7 @@ func main() {
 	// Retry connection with backoff
 	var session *gocql.Session
 	var err error
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		session, err = cluster.CreateSession()
 		if err == nil {
 			break

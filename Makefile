@@ -1,13 +1,16 @@
-.PHONY: run test test-data docker-up
+.PHONY: run test test-data test-auth docker-up
 
 run:
 	go run cmd/api/main.go
 
 test:
-	go test -v ./...
+	go test -v -count=1 ./...
+
+test-auth:
+	go test -v -count=1 ./internal/auth/...
 
 test-data:
-	go test -v ./internal/data/...
+	go test -v -count=1 ./internal/data/...
 
 docker-up:
 	docker compose down -v

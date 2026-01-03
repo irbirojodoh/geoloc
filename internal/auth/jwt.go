@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"time"
@@ -9,15 +10,54 @@ import (
 )
 
 var (
-	ErrInvalidToken = errors.New("invalid token")
-	ErrExpiredToken = errors.New("token has expired")
-	ErrWrongType    = errors.New("wrong token type")
+	ErrInvalidToken     = errors.New("invalid token")
+	ErrExpiredToken     = errors.New("token has expired")
+	ErrWrongType        = errors.New("wrong token type")
+	ErrInvalidTokenType = errors.New("invalid token type")
 )
+
+type TokenType int
+
+const (
+	TokenTypeAccess TokenType = iota
+	TokenTypeRefresh
+)
+
+var TokenTypeName = map[TokenType]string{
+	TokenTypeAccess:  "access",
+	TokenTypeRefresh: "refresh",
+}
+
+func (t TokenType) String() string {
+	return TokenTypeName[t]
+}
+
+func (t *TokenType) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	switch s {
+	case "access":
+		*t = TokenTypeAccess
+	case "refresh":
+		*t = TokenTypeRefresh
+	default:
+		return ErrInvalidTokenType
+	}
+
+	return nil
+}
+
+func (t TokenType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.String())
+}
 
 // Claims represents the JWT payload
 type Claims struct {
-	UserID string `json:"user_id"`
-	Type   string `json:"type"` // "access" or "refresh"
+	UserID string    `json:"user_id"`
+	Type   TokenType `json:"type"` // "access" or "refresh"
 	jwt.RegisteredClaims
 }
 
@@ -45,12 +85,12 @@ func getSecretKey() []byte {
 
 // GenerateTokenPair creates both access and refresh tokens for a user
 func GenerateTokenPair(userID string) (*TokenPair, error) {
-	accessToken, err := generateToken(userID, "access", AccessTokenDuration)
+	accessToken, err := generateToken(userID, TokenTypeAccess, AccessTokenDuration)
 	if err != nil {
 		return nil, err
 	}
 
-	refreshToken, err := generateToken(userID, "refresh", RefreshTokenDuration)
+	refreshToken, err := generateToken(userID, TokenTypeRefresh, RefreshTokenDuration)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +103,7 @@ func GenerateTokenPair(userID string) (*TokenPair, error) {
 }
 
 // generateToken creates a JWT with the specified type and duration
-func generateToken(userID, tokenType string, duration time.Duration) (string, error) {
+func generateToken(userID string, tokenType TokenType, duration time.Duration) (string, error) {
 	now := time.Now()
 	claims := &Claims{
 		UserID: userID,
@@ -86,7 +126,7 @@ func ValidateAccessToken(tokenString string) (*Claims, error) {
 		return nil, err
 	}
 
-	if claims.Type != "access" {
+	if claims.Type != TokenTypeAccess {
 		return nil, ErrWrongType
 	}
 
@@ -100,7 +140,7 @@ func ValidateRefreshToken(tokenString string) (*Claims, error) {
 		return nil, err
 	}
 
-	if claims.Type != "refresh" {
+	if claims.Type != TokenTypeRefresh {
 		return nil, ErrWrongType
 	}
 
@@ -109,7 +149,7 @@ func ValidateRefreshToken(tokenString string) (*Claims, error) {
 
 // validateToken parses and validates a JWT token
 func validateToken(tokenString string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (any, error) {
 		// Validate signing method
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, ErrInvalidToken
@@ -140,7 +180,7 @@ func RefreshAccessToken(refreshTokenString string) (*TokenPair, error) {
 	}
 
 	// Generate new access token only
-	accessToken, err := generateToken(claims.UserID, "access", AccessTokenDuration)
+	accessToken, err := generateToken(claims.UserID, TokenTypeAccess, AccessTokenDuration)
 	if err != nil {
 		return nil, err
 	}
