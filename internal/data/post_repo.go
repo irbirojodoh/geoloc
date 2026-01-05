@@ -30,34 +30,30 @@ func (r *PostRepository) CreatePost(ctx context.Context, req *CreatePostRequest)
 	fullGeohash := EncodeGeohash(req.Latitude, req.Longitude, 7)
 	geohashPrefix := GetGeohashPrefix(req.Latitude, req.Longitude)
 
+	batch := r.session.NewBatch(gocql.LoggedBatch)
+	batch.WithContext(ctx)
+
 	// Insert into posts_by_geohash
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO posts_by_geohash (geohash_prefix, created_at, post_id, user_id, content, media_urls, latitude, longitude, full_geohash, ip_address, user_agent)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, geohashPrefix, now, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent).
-		WithContext(ctx).Exec()
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert into posts_by_geohash: %w", err)
-	}
+	`, geohashPrefix, now, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent)
 
 	// Insert into posts_by_id
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO posts_by_id (post_id, user_id, content, media_urls, latitude, longitude, geohash, ip_address, user_agent, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent, now).
-		WithContext(ctx).Exec()
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert into posts_by_id: %w", err)
-	}
+	`, postID, userID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, fullGeohash, req.IPAddress, req.UserAgent, now)
 
 	// Insert into posts_by_user
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO posts_by_user (user_id, created_at, post_id, content, media_urls, latitude, longitude, ip_address, user_agent)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, userID, now, postID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, req.IPAddress, req.UserAgent).
-		WithContext(ctx).Exec()
+	`, userID, now, postID, req.Content, req.MediaURLs, req.Latitude, req.Longitude, req.IPAddress, req.UserAgent)
+
+	err = r.session.ExecuteBatch(batch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to insert into posts_by_user: %w", err)
+		return nil, fmt.Errorf("failed to create post: %w", err)
 	}
 
 	return &Post{

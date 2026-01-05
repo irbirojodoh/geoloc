@@ -14,10 +14,10 @@ type Pagination struct {
 
 // PaginatedResponse represents a paginated response
 type PaginatedResponse struct {
-	Data       interface{} `json:"data"`
-	NextCursor string      `json:"next_cursor,omitempty"`
-	HasMore    bool        `json:"has_more"`
-	Count      int         `json:"count"`
+	Data       any    `json:"data"`
+	NextCursor string `json:"next_cursor,omitempty"`
+	HasMore    bool   `json:"has_more"`
+	Count      int    `json:"count"`
 }
 
 // EncodeCursor encodes a timestamp into a cursor string
@@ -56,7 +56,7 @@ func GetDefaultLimit(limit, defaultLimit, maxLimit int) int {
 }
 
 // NewPaginatedResponse creates a new paginated response
-func NewPaginatedResponse(data interface{}, count int, hasMore bool, nextCursor string) PaginatedResponse {
+func NewPaginatedResponse(data any, count int, hasMore bool, nextCursor string) PaginatedResponse {
 	return PaginatedResponse{
 		Data:       data,
 		NextCursor: nextCursor,

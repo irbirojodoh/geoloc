@@ -34,34 +34,41 @@ func (r *FollowRepository) Follow(ctx context.Context, followerID, followingID s
 
 	now := time.Now()
 
+	batch := r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+
 	// Add to follows table
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO follows (follower_id, following_id, created_at)
 		VALUES (?, ?, ?)
-	`, fid, fgid, now).WithContext(ctx).Exec()
-	if err != nil {
-		return fmt.Errorf("failed to add follow: %w", err)
-	}
+	`, fid, fgid, now)
 
 	// Add to followers table (reverse)
-	err = r.session.Query(`
+	batch.Query(`
 		INSERT INTO followers (user_id, follower_id, created_at)
 		VALUES (?, ?, ?)
-	`, fgid, fid, now).WithContext(ctx).Exec()
+	`, fgid, fid, now)
+
+	err = r.session.ExecuteBatch(batch)
 	if err != nil {
-		return fmt.Errorf("failed to add follower: %w", err)
+		return fmt.Errorf("ERROR: failed to add follow: %w", err)
 	}
 
-	// Update counters
-	r.session.Query(`
-		UPDATE follow_counts SET following_count = following_count + 1
-		WHERE user_id = ?
-	`, fid).WithContext(ctx).Exec()
+	counterBatch := r.session.NewBatch(gocql.CounterBatch).WithContext(ctx)
 
-	r.session.Query(`
-		UPDATE follow_counts SET followers_count = followers_count + 1
-		WHERE user_id = ?
-	`, fgid).WithContext(ctx).Exec()
+	counterBatch.Query(`
+        UPDATE follow_counts SET following_count = following_count + 1
+        WHERE user_id = ?
+    `, fid)
+
+	counterBatch.Query(`
+        UPDATE follow_counts SET followers_count = followers_count + 1
+        WHERE user_id = ?
+    `, fgid)
+
+	if err := r.session.ExecuteBatch(counterBatch); err != nil {
+		// In a real system, you might want to retry this or log it to a queue
+		fmt.Printf("WARNING: failed to update follow counters: %v\n", err)
+	}
 
 	return nil
 }
@@ -84,29 +91,36 @@ func (r *FollowRepository) Unfollow(ctx context.Context, followerID, followingID
 		SELECT created_at FROM follows WHERE follower_id = ? AND following_id = ?
 	`, fid, fgid).WithContext(ctx).Scan(&createdAt)
 	if err != nil {
-		return fmt.Errorf("follow relationship not found")
+		if err == gocql.ErrNotFound {
+			return fmt.Errorf("follow relationship not found")
+		}
+		return fmt.Errorf("ERROR: follow relationship: %w", err)
 	}
 
+	batch := r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+
 	// Delete from follows
-	r.session.Query(`
+	batch.Query(`
 		DELETE FROM follows WHERE follower_id = ? AND following_id = ?
-	`, fid, fgid).WithContext(ctx).Exec()
+	`, fid, fgid)
 
 	// Delete from followers
-	r.session.Query(`
+	batch.Query(`
 		DELETE FROM followers WHERE user_id = ? AND created_at = ? AND follower_id = ?
-	`, fgid, createdAt, fid).WithContext(ctx).Exec()
+	`, fgid, createdAt, fid)
 
-	// Update counters
-	r.session.Query(`
-		UPDATE follow_counts SET following_count = following_count - 1
-		WHERE user_id = ?
-	`, fid).WithContext(ctx).Exec()
+	err = r.session.ExecuteBatch(batch)
+	if err != nil {
+		return fmt.Errorf("ERROR: unfolllow failed: %w", err)
+	}
 
-	r.session.Query(`
-		UPDATE follow_counts SET followers_count = followers_count - 1
-		WHERE user_id = ?
-	`, fgid).WithContext(ctx).Exec()
+	counterBatch := r.session.NewBatch(gocql.CounterBatch).WithContext(ctx)
+	counterBatch.Query(`UPDATE follow_counts SET following_count = following_count - 1 WHERE user_id = ?`, fid)
+	counterBatch.Query(`UPDATE follow_counts SET followers_count = followers_count - 1 WHERE user_id = ?`, fgid)
+
+	if err := r.session.ExecuteBatch(counterBatch); err != nil {
+		fmt.Printf("WARNING: failed to update unfollow counters: %v\n", err)
+	}
 
 	return nil
 }

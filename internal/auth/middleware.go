@@ -53,9 +53,10 @@ func AuthRequired() gin.HandlerFunc {
 			status := http.StatusUnauthorized
 			message := "Invalid token"
 
-			if err == ErrExpiredToken {
+			switch err {
+			case ErrExpiredToken:
 				message = "Token has expired"
-			} else if err == ErrWrongType {
+			case ErrWrongType:
 				message = "Invalid token type"
 			}
 

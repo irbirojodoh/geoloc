@@ -1,22 +1,87 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  cassandra:
+  # NODE 1: The Seed Node (Main entry point)
+  cassandra-1:
     image: cassandra:4.1
-    container_name: geoloc_cassandra
+    container_name: cassandra-1
     environment:
       - CASSANDRA_CLUSTER_NAME=geoloc
       - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      # It points to itself as the seed
+      - CASSANDRA_SEEDS=cassandra-1
+      # LIMIT MEMORY!
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
     ports:
-      - "9042:9042"
+      - "9042:9042" # Expose standard port for your App & cqlsh
     volumes:
-      - cassandra_data:/var/lib/cassandra
+      - cassandra_data_1:/var/lib/cassandra
     healthcheck:
-      test: [ "CMD-SHELL", "cqlsh -e 'describe cluster'" ]
+      test:
+        ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'describe cluster'"]
       interval: 30s
       timeout: 10s
       retries: 5
+
+  # NODE 2: Peer
+  cassandra-2:
+    image: cassandra:4.1
+    container_name: cassandra-2
+    environment:
+      - CASSANDRA_CLUSTER_NAME=geoloc
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      # Points to Node 1 to join the cluster
+      - CASSANDRA_SEEDS=cassandra-1
+      # LIMIT MEMORY!
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+
+    # We DO NOT expose ports here to the host to avoid conflicts.
+    # Docker internal network handles communication.
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    volumes:
+      - cassandra_data_2:/var/lib/cassandra
+
+  # NODE 3: Peer
+  cassandra-3:
+    image: cassandra:4.1
+    container_name: cassandra-3
+    environment:
+      - CASSANDRA_CLUSTER_NAME=geoloc
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_SEEDS=cassandra-1
+      # LIMIT MEMORY!
+      - MAX_HEAP_SIZE=512M
+      - HEAP_NEWSIZE=100M
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    volumes:
+      - cassandra_data_3:/var/lib/cassandra
+
+  # INIT CONTAINER (Connects to Node 1)
+  cassandra-db-init:
+    image: cassandra:4.1
+    depends_on:
+      cassandra-1:
+        condition: service_healthy
+    volumes:
+      - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql
+      - ./migrations/mock_data.cql:/schema/mock_data.cql
+    entrypoint: ["sh", "-c"]
+    # Note: We connect to 'cassandra-1' specifically
+    command: |
+      "echo 'Applying Schema...' &&
+       cqlsh cassandra-1 -f /schema/cassandra_schema.cql &&
+       echo 'Seeding Mock Data...' &&
+       cqlsh cassandra-1 -f /schema/mock_data.cql &&
+       echo 'Database Initialized!'"
 
   redis:
     image: redis:alpine
@@ -26,11 +91,13 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
 
 volumes:
-  cassandra_data:
+  cassandra_data_1:
+  cassandra_data_2:
+  cassandra_data_3:
   redis_data:
