@@ -16,6 +16,7 @@
 | Auth | JWT (15min access, 7d refresh) |
 | Password | SHA3-512 → SHA-256 |
 | Geospatial | Geohashing |
+| CORS | All origins allowed (`*`) |
 
 ---
 
@@ -27,7 +28,7 @@
 | POST | `/auth/register` | Register |
 | POST | `/auth/login` | Login |
 | POST | `/auth/refresh` | Refresh token |
-| GET | `/api/v1/feed` | Public feed |
+| GET | `/api/v1/feed` | Public feed (paginated) |
 
 ### Protected (Require Bearer token)
 
@@ -78,10 +79,35 @@
 
 ---
 
+## Pagination
+
+Feed endpoint uses **cursor-based pagination**:
+
+```
+GET /api/v1/feed?latitude=-6.36&longitude=106.82&limit=20&cursor=<next_cursor>
+```
+
+**Response:**
+```json
+{
+  "data": [/* posts with username */],
+  "count": 20,
+  "has_more": true,
+  "next_cursor": "MjAyNi0wMS0wNVQxMDozMDowMFo="
+}
+```
+
+- Posts include `username` and `profile_picture_url`
+- Pass `next_cursor` to get next page
+- Stop when `has_more` is `false`
+
+---
+
 ## Features
 
 - ✅ JWT Authentication
 - ✅ Geolocation posts & feed
+- ✅ Cursor-based pagination
 - ✅ Likes & nested comments (3 levels)
 - ✅ Follow users & locations
 - ✅ Notifications
@@ -99,6 +125,29 @@ docker compose up -d
 docker cp migrations/cassandra_schema.cql geoloc_cassandra:/tmp/
 docker exec -it geoloc_cassandra cqlsh -f /tmp/cassandra_schema.cql
 go run cmd/api/main.go
+```
+
+**Seed test data (20 users, 200 posts):**
+```bash
+go run cmd/seed/main.go
+```
+
+---
+
+## Project Structure
+
+```
+internal/data/
+├── models.go              # Data models
+├── pagination.go          # Cursor-based pagination
+├── geohash.go             # Geospatial utilities
+├── post_repo.go           # Post repository
+├── user_repo.go           # User repository
+├── comment_repo.go        # Comment repository
+├── like_repo.go           # Like repository
+├── follow_repo.go         # Follow repository
+├── location_follow_query.go
+└── notification_query.go
 ```
 
 ---
