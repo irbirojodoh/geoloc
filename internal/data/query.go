@@ -73,7 +73,8 @@ func (r *PostRepository) CreatePost(ctx context.Context, req *CreatePostRequest)
 }
 
 // GetNearbyPosts retrieves posts sorted by proximity to a given location
-func (r *PostRepository) GetNearbyPosts(ctx context.Context, latitude, longitude, radiusKM float64, limit int) ([]Post, error) {
+// cursorTime is used for pagination - only returns posts created before this time
+func (r *PostRepository) GetNearbyPosts(ctx context.Context, latitude, longitude, radiusKM float64, limit int, cursorTime time.Time) ([]Post, error) {
 	// Default values
 	if radiusKM <= 0 {
 		radiusKM = 10 // Default 10km radius
@@ -89,13 +90,27 @@ func (r *PostRepository) GetNearbyPosts(ctx context.Context, latitude, longitude
 	var allPosts []Post
 
 	for _, geohashPrefix := range neighbors {
-		iter := r.session.Query(`
-			SELECT post_id, user_id, content, media_urls, latitude, longitude, full_geohash, created_at
-			FROM posts_by_geohash
-			WHERE geohash_prefix = ?
-			LIMIT ?
-		`, geohashPrefix, limit*2). // Fetch more to account for distance filtering
-			WithContext(ctx).Iter()
+		var iter *gocql.Iter
+
+		if cursorTime.IsZero() {
+			// No cursor - get newest posts
+			iter = r.session.Query(`
+				SELECT post_id, user_id, content, media_urls, latitude, longitude, full_geohash, created_at
+				FROM posts_by_geohash
+				WHERE geohash_prefix = ?
+				ORDER BY created_at DESC
+				LIMIT ?
+			`, geohashPrefix, limit*2).WithContext(ctx).Iter()
+		} else {
+			// With cursor - get posts older than cursor
+			iter = r.session.Query(`
+				SELECT post_id, user_id, content, media_urls, latitude, longitude, full_geohash, created_at
+				FROM posts_by_geohash
+				WHERE geohash_prefix = ? AND created_at < ?
+				ORDER BY created_at DESC
+				LIMIT ?
+			`, geohashPrefix, cursorTime, limit*2).WithContext(ctx).Iter()
+		}
 
 		var post Post
 		var postID, userID gocql.UUID
@@ -123,9 +138,9 @@ func (r *PostRepository) GetNearbyPosts(ctx context.Context, latitude, longitude
 		}
 	}
 
-	// Sort by distance
+	// Sort by created_at (newest first) for consistent pagination
 	sort.Slice(allPosts, func(i, j int) bool {
-		return allPosts[i].Distance < allPosts[j].Distance
+		return allPosts[i].CreatedAt.After(allPosts[j].CreatedAt)
 	})
 
 	// Apply limit

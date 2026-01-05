@@ -35,17 +35,19 @@ type CreateUserRequest struct {
 
 // Post represents a social media post with geospatial data
 type Post struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Content   string    `json:"content"`
-	MediaURLs []string  `json:"media_urls,omitempty"`
-	Latitude  float64   `json:"latitude"`
-	Longitude float64   `json:"longitude"`
-	Geohash   string    `json:"geohash,omitempty"`
-	IPAddress string    `json:"-"` // Don't expose in JSON
-	UserAgent string    `json:"-"` // Don't expose in JSON
-	CreatedAt time.Time `json:"created_at"`
-	Distance  float64   `json:"distance_km,omitempty"`
+	ID                string    `json:"id"`
+	UserID            string    `json:"user_id"`
+	Username          string    `json:"username,omitempty"`
+	ProfilePictureURL string    `json:"profile_picture_url,omitempty"`
+	Content           string    `json:"content"`
+	MediaURLs         []string  `json:"media_urls,omitempty"`
+	Latitude          float64   `json:"latitude"`
+	Longitude         float64   `json:"longitude"`
+	Geohash           string    `json:"geohash,omitempty"`
+	IPAddress         string    `json:"-"` // Don't expose in JSON
+	UserAgent         string    `json:"-"` // Don't expose in JSON
+	CreatedAt         time.Time `json:"created_at"`
+	Distance          float64   `json:"distance_km,omitempty"`
 }
 
 // CreatePostRequest represents the request body for creating a post
@@ -65,6 +67,7 @@ type GetFeedRequest struct {
 	Longitude float64 `form:"longitude" binding:"required"`
 	RadiusKM  float64 `form:"radius_km"`
 	Limit     int     `form:"limit"`
+	Cursor    string  `form:"cursor"`
 }
 
 // ValidateMediaURLs checks if media URLs array has max 4 items

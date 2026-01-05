@@ -75,7 +75,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 }
 
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
@@ -102,12 +102,26 @@ func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
 			return
 		}
 
+		// Decode cursor for pagination
+		cursorTime, err := data.DecodeCursor(req.Cursor)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid cursor",
+			})
+			return
+		}
+
+		// Apply default limit
+		limit := data.GetDefaultLimit(req.Limit, 20, 100)
+
+		// Fetch one extra to determine if there are more posts
 		posts, err := repo.GetNearbyPosts(
 			c.Request.Context(),
 			req.Latitude,
 			req.Longitude,
 			req.RadiusKM,
-			req.Limit,
+			limit+1,
+			cursorTime,
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
@@ -117,10 +131,43 @@ func GetFeed(repo *data.PostRepository) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Feed fetched successfully",
-			"count":   len(posts),
-			"posts":   posts,
+		// Determine if there are more posts
+		hasMore := len(posts) > limit
+		if hasMore {
+			posts = posts[:limit]
+		}
+
+		// Generate next cursor from last post's created_at
+		var nextCursor string
+		if hasMore && len(posts) > 0 {
+			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
+		}
+
+		// Enrich posts with user info (username, profile picture)
+		if len(posts) > 0 {
+			userIDs := make([]string, 0, len(posts))
+			seen := make(map[string]bool)
+			for _, p := range posts {
+				if !seen[p.UserID] {
+					userIDs = append(userIDs, p.UserID)
+					seen[p.UserID] = true
+				}
+			}
+
+			userInfoMap, _ := userRepo.GetUsersByIDs(c.Request.Context(), userIDs)
+			for i := range posts {
+				if info, ok := userInfoMap[posts[i].UserID]; ok {
+					posts[i].Username = info.Username
+					posts[i].ProfilePictureURL = info.ProfilePictureURL
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, data.PaginatedResponse{
+			Data:       posts,
+			Count:      len(posts),
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
 		})
 	}
 }

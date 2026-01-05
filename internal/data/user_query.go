@@ -17,6 +17,38 @@ func NewUserRepository(session *gocql.Session) *UserRepository {
 	return &UserRepository{session: session}
 }
 
+// UserInfo contains basic user info for enriching posts
+type UserInfo struct {
+	Username          string
+	ProfilePictureURL string
+}
+
+// GetUsersByIDs retrieves usernames and profile pictures for multiple user IDs
+func (r *UserRepository) GetUsersByIDs(ctx context.Context, userIDs []string) (map[string]UserInfo, error) {
+	result := make(map[string]UserInfo)
+
+	for _, idStr := range userIDs {
+		userID, err := gocql.ParseUUID(idStr)
+		if err != nil {
+			continue
+		}
+
+		var username, profilePicURL string
+		err = r.session.Query(`
+			SELECT username, profile_picture_url FROM users WHERE id = ?
+		`, userID).WithContext(ctx).Scan(&username, &profilePicURL)
+
+		if err == nil {
+			result[idStr] = UserInfo{
+				Username:          username,
+				ProfilePictureURL: profilePicURL,
+			}
+		}
+	}
+
+	return result, nil
+}
+
 // CreateUser inserts a new user into the database
 func (r *UserRepository) CreateUser(ctx context.Context, req *CreateUserRequest) (*User, error) {
 	userID := gocql.TimeUUID()

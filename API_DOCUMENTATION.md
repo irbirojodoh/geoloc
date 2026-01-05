@@ -1,220 +1,515 @@
-# API Documentation
+# Geoloc API Documentation
 
-Base URL: `http://localhost:8080`
+**Base URL:** `http://localhost:8080`
 
 ## Table of Contents
 
-- [Health Check](#health-check)
-- [User Endpoints](#user-endpoints)
-  - [Create User](#1-create-user)
-  - [Get User by ID](#2-get-user-by-id)
-  - [Get User by Username](#3-get-user-by-username)
-- [Post Endpoints](#post-endpoints)
-  - [Create Post](#4-create-post)
-  - [Get Nearby Feed](#5-get-nearby-feed)
+- [Overview](#overview)
+- [Authentication](#authentication)
+- [Public Endpoints](#public-endpoints)
+- [Protected Endpoints](#protected-endpoints)
+  - [Profile](#profile)
+  - [Users](#users)
+  - [Follows](#follows)
+  - [Posts](#posts)
+  - [Likes](#likes)
+  - [Comments](#comments)
+  - [Locations](#locations)
+  - [Notifications](#notifications)
+  - [Search](#search)
+  - [Upload](#upload)
+  - [Devices](#devices)
 - [Error Responses](#error-responses)
 - [Rate Limits](#rate-limits)
 
 ---
 
-## Health Check
+## Overview
 
-Check if the API is running and healthy.
+Geoloc is a hyper-local social media API built with Go and Cassandra. It features:
+- JWT-based authentication (15-min access token, 7-day refresh token)
+- Geospatial posts using geohashing (~5km precision)
+- Nested comments (up to 3 levels)
+- User and location following
+- Push notification support
+- Rate limiting (100 req/min per IP)
+
+---
+
+## Authentication
+
+All protected endpoints require a Bearer token in the Authorization header:
+
+```
+Authorization: Bearer <access_token>
+```
+
+### Token Lifecycle
+| Token | Expiry |
+|-------|--------|
+| Access Token | 15 minutes |
+| Refresh Token | 7 days |
+
+---
+
+## Public Endpoints
+
+### Health Check
 
 **Endpoint:** `GET /health`
 
 **Response:** `200 OK`
 ```json
 {
-  "status": "ok"
+  "status": "ok",
+  "database": "cassandra"
 }
-```
-
-**Example:**
-```bash
-curl http://localhost:8080/health
 ```
 
 ---
 
-## User Endpoints
+### Register
 
-### 1. Create User
-
-Create a new user account.
-
-**Endpoint:** `POST /api/v1/users`
-
-**Headers:**
-| Header | Value | Required |
-|--------|-------|----------|
-| Content-Type | application/json | Yes |
+**Endpoint:** `POST /auth/register`
 
 **Request Body:**
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | username | string | Yes | 3-50 characters, unique |
-| email | string | Yes | Valid email format, unique |
-| full_name | string | No | Max 100 characters |
-| bio | string | No | No limit |
+| email | string | Yes | Valid email, unique |
+| password | string | Yes | Min 6 characters |
+| full_name | string | Yes | - |
+| phone_number | string | No | - |
 
 **Request Example:**
 ```json
 {
   "username": "johndoe",
   "email": "john@example.com",
+  "password": "securepassword123",
   "full_name": "John Doe",
-  "bio": "Tech enthusiast from NYC"
+  "phone_number": "+1234567890"
 }
 ```
 
 **Success Response:** `201 Created`
 ```json
 {
-  "message": "User created successfully",
+  "message": "User registered successfully",
   "user": {
-    "id": 1,
+    "id": "550e8400-e29b-41d4-a716-446655440000",
     "username": "johndoe",
     "email": "john@example.com",
-    "full_name": "John Doe",
-    "bio": "Tech enthusiast from NYC",
-    "created_at": "2025-12-13T19:30:00Z",
-    "updated_at": "2025-12-13T19:30:00Z"
-  }
+    "full_name": "John Doe"
+  },
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "expires_in": 900
 }
-```
-
-**Error Responses:**
-
-| Status Code | Description |
-|-------------|-------------|
-| 400 Bad Request | Invalid request body or validation failed |
-| 409 Conflict | Username or email already exists |
-| 500 Internal Server Error | Database error |
-
-**curl Example:**
-```bash
-curl -X POST http://localhost:8080/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "johndoe",
-    "email": "john@example.com",
-    "full_name": "John Doe",
-    "bio": "Tech enthusiast from NYC"
-  }'
 ```
 
 ---
 
-### 2. Get User by ID
+### Login
 
-Retrieve a user's information by their ID.
-
-**Endpoint:** `GET /api/v1/users/:id`
-
-**URL Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| id | integer | Yes | User ID |
-
-**Success Response:** `200 OK`
-```json
-{
-  "user": {
-    "id": 1,
-    "username": "johndoe",
-    "email": "john@example.com",
-    "full_name": "John Doe",
-    "bio": "Tech enthusiast from NYC",
-    "created_at": "2025-12-13T19:30:00Z",
-    "updated_at": "2025-12-13T19:30:00Z"
-  }
-}
-```
-
-**Error Responses:**
-
-| Status Code | Description |
-|-------------|-------------|
-| 400 Bad Request | Invalid user ID format |
-| 404 Not Found | User not found |
-| 500 Internal Server Error | Database error |
-
-**curl Example:**
-```bash
-curl http://localhost:8080/api/v1/users/1
-```
-
----
-
-### 3. Get User by Username
-
-Retrieve a user's information by their username.
-
-**Endpoint:** `GET /api/v1/users/username/:username`
-
-**URL Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| username | string | Yes | Username |
-
-**Success Response:** `200 OK`
-```json
-{
-  "user": {
-    "id": 1,
-    "username": "johndoe",
-    "email": "john@example.com",
-    "full_name": "John Doe",
-    "bio": "Tech enthusiast from NYC",
-    "created_at": "2025-12-13T19:30:00Z",
-    "updated_at": "2025-12-13T19:30:00Z"
-  }
-}
-```
-
-**Error Responses:**
-
-| Status Code | Description |
-|-------------|-------------|
-| 404 Not Found | User not found |
-| 500 Internal Server Error | Database error |
-
-**curl Example:**
-```bash
-curl http://localhost:8080/api/v1/users/username/johndoe
-```
-
----
-
-## Post Endpoints
-
-### 4. Create Post
-
-Create a new post with geolocation data.
-
-**Endpoint:** `POST /api/v1/posts`
-
-**Headers:**
-| Header | Value | Required |
-|--------|-------|----------|
-| Content-Type | application/json | Yes |
+**Endpoint:** `POST /auth/login`
 
 **Request Body:**
-| Field | Type | Required | Constraints |
-|-------|------|----------|-------------|
-| user_id | integer | Yes | Must be a valid user ID |
-| content | string | Yes | No limit |
-| latitude | float | Yes | -90 to 90 |
-| longitude | float | Yes | -180 to 180 |
+| Field | Type | Description |
+|-------|------|-------------|
+| identifier | string | Email or username |
+| password | string | User password |
 
 **Request Example:**
 ```json
 {
-  "user_id": 1,
-  "content": "Amazing view from Central Park!",
+  "identifier": "johndoe",
+  "password": "securepassword123"
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Login successful",
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "expires_in": 900,
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "johndoe",
+    "email": "john@example.com"
+  }
+}
+```
+
+---
+
+### Refresh Token
+
+**Endpoint:** `POST /auth/refresh`
+
+**Request Body:**
+```json
+{
+  "refresh_token": "eyJ..."
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "expires_in": 900
+}
+```
+
+---
+
+### Get Feed (Public)
+
+**Endpoint:** `GET /api/v1/feed`
+
+This endpoint uses **cursor-based pagination** for efficient infinite scroll implementation.
+
+**Query Parameters:**
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| latitude | float | Yes | - | -90 to 90 |
+| longitude | float | Yes | - | -180 to 180 |
+| radius_km | float | No | 10 | Search radius in km |
+| limit | int | No | 20 | Posts per page (max 100) |
+| cursor | string | No | - | Pagination cursor (base64 encoded) |
+
+---
+
+#### Pagination Guide for Mobile Clients
+
+**How It Works:**
+1. First request: Omit `cursor` parameter to get newest posts
+2. Response includes `next_cursor` if more posts exist
+3. Subsequent requests: Pass `next_cursor` as `cursor` parameter
+4. Continue until `has_more` is `false`
+
+**Response Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| data | array | Array of post objects |
+| count | int | Number of posts in this response |
+| has_more | bool | `true` if more posts are available |
+| next_cursor | string | Pass this as `cursor` for next page (empty if no more) |
+
+**Post Object Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| id | UUID | Post unique identifier |
+| user_id | UUID | Author's user ID |
+| username | string | Author's username |
+| profile_picture_url | string | Author's avatar URL |
+| content | string | Post text content |
+| media_urls | array | Media attachments (max 4) |
+| latitude | float | Post location latitude |
+| longitude | float | Post location longitude |
+| geohash | string | Geohash of location |
+| created_at | timestamp | ISO 8601 format |
+| distance_km | float | Distance from query location |
+
+---
+
+#### Example: First Page
+
+**Request:**
+```
+GET /api/v1/feed?latitude=-6.3653&longitude=106.8269&limit=10
+```
+
+**Response:** `200 OK`
+```json
+{
+  "data": [
+    {
+      "id": "a6b4ff20-ea1b-11f0-879d-7a2e88169b55",
+      "user_id": "550e8400-e29b-41d4-a716-446655440000",
+      "username": "john_doe",
+      "profile_picture_url": "http://localhost:8080/uploads/avatars/john.jpg",
+      "content": "Beautiful morning in Jakarta! ☀️",
+      "media_urls": ["http://localhost:8080/uploads/posts/abc.jpg"],
+      "latitude": -6.3653,
+      "longitude": 106.8269,
+      "geohash": "qqguy",
+      "created_at": "2026-01-05T10:30:00Z",
+      "distance_km": 0.5
+    }
+  ],
+  "count": 10,
+  "has_more": true,
+  "next_cursor": "MjAyNi0wMS0wNVQxMDozMDowMFo="
+}
+```
+
+---
+
+#### Example: Load More (Next Page)
+
+**Request:**
+```
+GET /api/v1/feed?latitude=-6.3653&longitude=106.8269&limit=10&cursor=MjAyNi0wMS0wNVQxMDozMDowMFo=
+```
+
+**Response:** `200 OK`
+```json
+{
+  "data": [/* next 10 posts */],
+  "count": 10,
+  "has_more": true,
+  "next_cursor": "MjAyNi0wMS0wNFQxNTowMDowMFo="
+}
+```
+
+---
+
+#### Example: Last Page
+
+**Response:** `200 OK`
+```json
+{
+  "data": [/* final 3 posts */],
+  "count": 3,
+  "has_more": false,
+  "next_cursor": ""
+}
+```
+
+---
+
+#### Mobile Implementation Pseudocode
+
+```swift
+// Swift/iOS Example
+class FeedViewModel {
+    var posts: [Post] = []
+    var nextCursor: String? = nil
+    var hasMore = true
+    var isLoading = false
+    
+    func loadInitialFeed() async {
+        nextCursor = nil
+        posts = []
+        await loadMore()
+    }
+    
+    func loadMore() async {
+        guard hasMore, !isLoading else { return }
+        isLoading = true
+        
+        var url = "/api/v1/feed?latitude=\(lat)&longitude=\(lng)&limit=20"
+        if let cursor = nextCursor {
+            url += "&cursor=\(cursor)"
+        }
+        
+        let response = await api.get(url)
+        posts.append(contentsOf: response.data)
+        nextCursor = response.next_cursor
+        hasMore = response.has_more
+        isLoading = false
+    }
+    
+    // Call loadMore() when user scrolls near bottom
+}
+```
+
+```kotlin
+// Kotlin/Android Example
+class FeedViewModel : ViewModel() {
+    val posts = mutableListOf<Post>()
+    var nextCursor: String? = null
+    var hasMore = true
+    var isLoading = false
+    
+    fun loadInitialFeed() {
+        nextCursor = null
+        posts.clear()
+        loadMore()
+    }
+    
+    fun loadMore() {
+        if (!hasMore || isLoading) return
+        isLoading = true
+        
+        viewModelScope.launch {
+            val params = mutableMapOf(
+                "latitude" to lat,
+                "longitude" to lng,
+                "limit" to 20
+            )
+            nextCursor?.let { params["cursor"] = it }
+            
+            val response = api.getFeed(params)
+            posts.addAll(response.data)
+            nextCursor = response.nextCursor
+            hasMore = response.hasMore
+            isLoading = false
+        }
+    }
+}
+```
+
+---
+
+## Protected Endpoints
+
+> All endpoints below require `Authorization: Bearer <token>` header.
+
+---
+
+### Profile
+
+#### Update Current User Profile
+
+**Endpoint:** `PUT /api/v1/users/me`
+
+**Request Body:**
+| Field | Type | Description |
+|-------|------|-------------|
+| full_name | string | Display name |
+| bio | string | User bio |
+| phone_number | string | Phone number |
+| profile_picture_url | string | Avatar URL |
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Profile updated",
+  "user": { ... }
+}
+```
+
+---
+
+### Users
+
+#### Get User by ID
+
+**Endpoint:** `GET /api/v1/users/:id`
+
+**Success Response:** `200 OK`
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "johndoe",
+    "full_name": "John Doe",
+    "bio": "Tech enthusiast",
+    "profile_picture_url": "http://...",
+    "created_at": "2025-12-13T19:30:00Z"
+  }
+}
+```
+
+#### Get User by Username
+
+**Endpoint:** `GET /api/v1/users/username/:username`
+
+#### Get User's Posts
+
+**Endpoint:** `GET /api/v1/users/:id/posts`
+
+**Success Response:** `200 OK`
+```json
+{
+  "count": 10,
+  "posts": [ ... ]
+}
+```
+
+---
+
+### Follows
+
+#### Follow User
+
+**Endpoint:** `POST /api/v1/users/:id/follow`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User followed"
+}
+```
+
+#### Unfollow User
+
+**Endpoint:** `DELETE /api/v1/users/:id/follow`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User unfollowed"
+}
+```
+
+#### Get Followers
+
+**Endpoint:** `GET /api/v1/users/:id/followers`
+
+**Query Parameters:**
+| Parameter | Type | Default |
+|-----------|------|---------|
+| limit | int | 50 |
+
+**Success Response:** `200 OK`
+```json
+{
+  "user_id": "...",
+  "count": 42,
+  "followers": [ ... ]
+}
+```
+
+#### Get Following
+
+**Endpoint:** `GET /api/v1/users/:id/following`
+
+**Query Parameters:**
+| Parameter | Type | Default |
+|-----------|------|---------|
+| limit | int | 50 |
+
+**Success Response:** `200 OK`
+```json
+{
+  "user_id": "...",
+  "count": 15,
+  "following": [ ... ]
+}
+```
+
+---
+
+### Posts
+
+#### Create Post
+
+**Endpoint:** `POST /api/v1/posts`
+
+**Request Body:**
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| user_id | UUID | Yes | Must exist |
+| content | string | Yes | - |
+| latitude | float | Yes | -90 to 90 |
+| longitude | float | Yes | -180 to 180 |
+| media_urls | array | No | Max 4 URLs |
+
+**Request Example:**
+```json
+{
+  "user_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content": "Hello from Central Park!",
   "latitude": 40.785091,
-  "longitude": -73.968285
+  "longitude": -73.968285,
+  "media_urls": ["http://localhost:8080/uploads/posts/photo.jpg"]
 }
 ```
 
@@ -222,366 +517,431 @@ Create a new post with geolocation data.
 ```json
 {
   "message": "Post created successfully",
-  "post": {
-    "id": 1,
-    "user_id": 1,
-    "content": "Amazing view from Central Park!",
-    "latitude": 40.785091,
-    "longitude": -73.968285,
-    "created_at": "2025-12-13T19:30:00Z"
-  }
+  "post": { ... }
 }
 ```
 
-**Error Responses:**
+#### Get Post by ID
 
-| Status Code | Description |
-|-------------|-------------|
-| 400 Bad Request | Invalid request body, missing fields, or invalid coordinates |
-| 500 Internal Server Error | Database error |
-
-**Coordinate Validation:**
-- Latitude must be between -90 (South Pole) and 90 (North Pole)
-- Longitude must be between -180 and 180
-
-**curl Example:**
-```bash
-curl -X POST http://localhost:8080/api/v1/posts \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": 1,
-    "content": "Beautiful morning in Central Park! 🌳",
-    "latitude": 40.785091,
-    "longitude": -73.968285
-  }'
-```
-
----
-
-### 5. Get Nearby Feed
-
-Retrieve posts sorted by proximity to a given location using PostGIS spatial queries.
-
-**Endpoint:** `GET /api/v1/feed`
-
-**Query Parameters:**
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| latitude | float | Yes | - | Your current latitude (-90 to 90) |
-| longitude | float | Yes | - | Your current longitude (-180 to 180) |
-| radius_km | float | No | 10 | Search radius in kilometers |
-| limit | integer | No | 50 | Max posts to return (max: 100) |
+**Endpoint:** `GET /api/v1/posts/:id`
 
 **Success Response:** `200 OK`
 ```json
 {
-  "message": "Feed fetched successfully",
-  "count": 2,
-  "posts": [
-    {
-      "id": 2,
-      "user_id": 1,
-      "content": "The lights of Times Square never get old ✨",
-      "latitude": 40.758896,
-      "longitude": -73.985130,
-      "created_at": "2025-12-13T19:28:00Z"
-    },
-    {
-      "id": 1,
-      "user_id": 1,
-      "content": "Beautiful morning in Central Park! 🌳",
-      "latitude": 40.785091,
-      "longitude": -73.968285,
-      "created_at": "2025-12-13T19:25:00Z"
-    }
-  ]
+  "post": { ... }
 }
 ```
 
-**Error Responses:**
+---
 
-| Status Code | Description |
-|-------------|-------------|
-| 400 Bad Request | Missing required parameters or invalid coordinates |
-| 500 Internal Server Error | Database error |
+### Likes
 
-**Notes:**
-- Posts are ordered by distance (nearest first)
-- Uses PostGIS `ST_DWithin` for efficient spatial filtering
-- Uses PostGIS `ST_Distance` for distance calculation
-- Leverages GiST spatial indexes for performance
+#### Like Post
 
-**curl Examples:**
-```bash
-# Get posts within 5km radius, limit to 20 results
-curl "http://localhost:8080/api/v1/feed?latitude=40.758896&longitude=-73.985130&radius_km=5&limit=20"
+**Endpoint:** `POST /api/v1/posts/:id/like`
 
-# Get posts within default 10km radius
-curl "http://localhost:8080/api/v1/feed?latitude=40.758896&longitude=-73.985130"
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Post liked"
+}
+```
 
-# Get posts near Central Park
-curl "http://localhost:8080/api/v1/feed?latitude=40.785091&longitude=-73.968285&radius_km=10"
+#### Unlike Post
+
+**Endpoint:** `DELETE /api/v1/posts/:id/like`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Post unliked"
+}
+```
+
+#### Like Comment
+
+**Endpoint:** `POST /api/v1/comments/:id/like`
+
+#### Unlike Comment
+
+**Endpoint:** `DELETE /api/v1/comments/:id/like`
+
+---
+
+### Comments
+
+#### Create Comment
+
+**Endpoint:** `POST /api/v1/posts/:id/comments`
+
+**Request Body:**
+| Field | Type | Required |
+|-------|------|----------|
+| content | string | Yes |
+
+**Success Response:** `201 Created`
+```json
+{
+  "message": "Comment created",
+  "comment": {
+    "id": "...",
+    "post_id": "...",
+    "user_id": "...",
+    "content": "Great post!",
+    "depth": 1,
+    "created_at": "..."
+  }
+}
+```
+
+#### Get Comments for Post
+
+**Endpoint:** `GET /api/v1/posts/:id/comments`
+
+**Query Parameters:**
+| Parameter | Type | Default |
+|-----------|------|---------|
+| limit | int | 50 |
+
+**Success Response:** `200 OK`
+```json
+{
+  "post_id": "...",
+  "total_count": 15,
+  "comments": [ ... ]
+}
+```
+
+#### Reply to Comment
+
+**Endpoint:** `POST /api/v1/comments/:id/reply`
+
+> Maximum nesting depth is 3 levels.
+
+**Request Body:**
+```json
+{
+  "content": "Thanks!"
+}
+```
+
+**Success Response:** `201 Created`
+```json
+{
+  "message": "Reply created",
+  "comment": { ... }
+}
+```
+
+#### Delete Comment
+
+**Endpoint:** `DELETE /api/v1/comments/:id`
+
+> Users can only delete their own comments.
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Comment deleted"
+}
+```
+
+---
+
+### Locations
+
+#### Follow Location
+
+**Endpoint:** `POST /api/v1/locations/follow`
+
+**Request Body:**
+| Field | Type | Required |
+|-------|------|----------|
+| latitude | float | Yes |
+| longitude | float | Yes |
+| name | string | No |
+
+**Request Example:**
+```json
+{
+  "latitude": 40.785091,
+  "longitude": -73.968285,
+  "name": "Central Park"
+}
+```
+
+**Success Response:** `201 Created`
+```json
+{
+  "message": "Location followed",
+  "location": {
+    "geohash_prefix": "dr5ru",
+    "name": "Central Park",
+    "latitude": 40.785091,
+    "longitude": -73.968285
+  }
+}
+```
+
+#### Unfollow Location
+
+**Endpoint:** `DELETE /api/v1/locations/:geohash/follow`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Location unfollowed"
+}
+```
+
+#### Get Followed Locations
+
+**Endpoint:** `GET /api/v1/locations/following`
+
+**Success Response:** `200 OK`
+```json
+{
+  "locations": [ ... ],
+  "count": 3
+}
+```
+
+---
+
+### Notifications
+
+#### Get Notifications
+
+**Endpoint:** `GET /api/v1/notifications`
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| limit | int | 50 | Max results |
+| unread | bool | false | Filter unread only |
+
+**Success Response:** `200 OK`
+```json
+{
+  "notifications": [
+    {
+      "id": "...",
+      "type": "follow",
+      "actor_id": "...",
+      "message": "started following you",
+      "is_read": false,
+      "created_at": "..."
+    }
+  ],
+  "unread_count": 5,
+  "total": 20
+}
+```
+
+#### Mark Notification as Read
+
+**Endpoint:** `PUT /api/v1/notifications/:id/read`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Notification marked as read"
+}
+```
+
+#### Mark All Notifications as Read
+
+**Endpoint:** `PUT /api/v1/notifications/read-all`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "All notifications marked as read"
+}
+```
+
+---
+
+### Search
+
+#### Search Users
+
+**Endpoint:** `GET /api/v1/search/users`
+
+**Query Parameters:**
+| Parameter | Type | Required | Constraints |
+|-----------|------|----------|-------------|
+| q | string | Yes | Min 2 characters |
+| limit | int | No | Default: 20 |
+
+**Success Response:** `200 OK`
+```json
+{
+  "query": "john",
+  "results": [ ... ],
+  "count": 5
+}
+```
+
+#### Search Posts
+
+**Endpoint:** `GET /api/v1/search/posts`
+
+**Query Parameters:**
+| Parameter | Type | Required | Constraints |
+|-----------|------|----------|-------------|
+| q | string | Yes | Min 2 characters |
+| limit | int | No | Default: 20 |
+
+**Success Response:** `200 OK`
+```json
+{
+  "query": "central park",
+  "results": [ ... ],
+  "count": 10
+}
+```
+
+---
+
+### Upload
+
+#### Upload Avatar
+
+**Endpoint:** `POST /api/v1/upload/avatar`
+
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| file | file | Max 5MB, JPEG/PNG/GIF/WebP |
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Avatar uploaded",
+  "filename": "avatars/abc123.jpg",
+  "url": "http://localhost:8080/uploads/avatars/abc123.jpg"
+}
+```
+
+#### Upload Post Media
+
+**Endpoint:** `POST /api/v1/upload/post`
+
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| file | file | Max 50MB, JPEG/PNG/GIF/WebP/MP4/MOV |
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Media uploaded",
+  "filename": "posts/xyz789.mp4",
+  "url": "http://localhost:8080/uploads/posts/xyz789.mp4",
+  "media_type": "video",
+  "extension": ".mp4"
+}
+```
+
+---
+
+### Devices
+
+#### Register Device (Push Notifications)
+
+**Endpoint:** `POST /api/v1/devices`
+
+**Request Body:**
+```json
+{
+  "token": "fcm_device_token_here",
+  "platform": "ios"
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Device registered"
+}
+```
+
+#### Unregister Device
+
+**Endpoint:** `DELETE /api/v1/devices`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Device unregistered"
+}
 ```
 
 ---
 
 ## Error Responses
 
-All error responses follow this format:
+All errors follow this format:
 
 ```json
 {
   "error": "Error message",
-  "details": "Detailed error information (optional)"
+  "details": "Optional detailed information"
 }
 ```
 
 ### Common HTTP Status Codes
 
-| Status Code | Description |
-|-------------|-------------|
-| 200 OK | Request succeeded |
-| 201 Created | Resource created successfully |
-| 400 Bad Request | Invalid request (validation failed, missing parameters) |
-| 404 Not Found | Resource not found |
-| 409 Conflict | Conflict with existing resource (duplicate username/email) |
-| 500 Internal Server Error | Server-side error |
-
-### Example Error Responses
-
-**400 Bad Request - Validation Error:**
-```json
-{
-  "error": "Invalid request body",
-  "details": "Key: 'CreateUserRequest.Email' Error:Field validation for 'Email' failed on the 'email' tag"
-}
-```
-
-**404 Not Found:**
-```json
-{
-  "error": "User not found"
-}
-```
-
-**409 Conflict:**
-```json
-{
-  "error": "Username or email already exists"
-}
-```
+| Code | Description |
+|------|-------------|
+| 200 | Success |
+| 201 | Created |
+| 400 | Bad Request (validation failed) |
+| 401 | Unauthorized (invalid/missing token) |
+| 403 | Forbidden (not allowed) |
+| 404 | Not Found |
+| 409 | Conflict (duplicate resource) |
+| 429 | Too Many Requests (rate limited) |
+| 500 | Internal Server Error |
 
 ---
 
 ## Rate Limits
 
-Currently, there are no rate limits implemented. This is a PoC version.
+| Limit | Value |
+|-------|-------|
+| Requests per IP | 100/minute |
 
-**Production Recommendations:**
-- Implement rate limiting per IP address
-- Use Redis for distributed rate limiting
-- Suggested limits:
-  - 100 requests per minute for reads
-  - 30 requests per minute for writes
+When rate limited, you'll receive:
 
----
-
-## Authentication
-
-Currently, there is no authentication implemented. All endpoints are public.
-
-**Production Recommendations:**
-- Add JWT-based authentication
-- Implement user sessions
-- Add API key support for third-party integrations
-- Use middleware for protected routes
+```json
+{
+  "error": "Rate limit exceeded. Please try again later."
+}
+```
 
 ---
 
 ## CORS Configuration
 
-The API currently allows all origins (`*`). This should be restricted in production.
-
-**Current Configuration:**
-- Allow Origins: `*`
-- Allow Methods: `GET`, `POST`, `PUT`, `DELETE`
-- Allow Headers: `Origin`, `Content-Type`, `Authorization`
-
----
-
-## Database Schema
-
-### Users Table
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | SERIAL | PRIMARY KEY |
-| username | VARCHAR(50) | UNIQUE, NOT NULL |
-| email | VARCHAR(255) | UNIQUE, NOT NULL |
-| full_name | VARCHAR(100) | NULLABLE |
-| bio | TEXT | NULLABLE |
-| created_at | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() |
-| updated_at | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() |
-
-**Indexes:**
-- `users_pkey`: Primary key on `id`
-- `idx_users_username`: B-tree index on `username`
-- `idx_users_email`: B-tree index on `email`
-- `users_username_key`: Unique constraint on `username`
-- `users_email_key`: Unique constraint on `email`
-
-### Posts Table
-
-| Column | Type | Constraints |
-|--------|------|-------------|
-| id | SERIAL | PRIMARY KEY |
-| user_id | INTEGER | FOREIGN KEY (users.id) ON DELETE CASCADE |
-| content | TEXT | NOT NULL |
-| location | GEOGRAPHY(POINT, 4326) | NOT NULL |
-| created_at | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() |
-
-**Indexes:**
-- `posts_pkey`: Primary key on `id`
-- `idx_posts_location`: GiST spatial index on `location`
-- `idx_posts_created_at`: B-tree index on `created_at DESC`
-- `idx_posts_user_id`: B-tree index on `user_id`
-
-**Foreign Keys:**
-- `fk_posts_user_id`: References `users(id)` with CASCADE delete
+| Setting | Value |
+|---------|-------|
+| Allow Origins | `*` |
+| Allow Methods | GET, POST, PUT, DELETE |
+| Allow Headers | Origin, Content-Type, Authorization |
 
 ---
 
-## Testing with Postman
+## Environment Variables
 
-Import the following collection to test all endpoints:
-
-### Postman Collection (JSON)
-
-```json
-{
-  "info": {
-    "name": "Geoloc API",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Health Check",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "http://localhost:8080/health",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "8080",
-          "path": ["health"]
-        }
-      }
-    },
-    {
-      "name": "Create User",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"username\": \"johndoe\",\n  \"email\": \"john@example.com\",\n  \"full_name\": \"John Doe\",\n  \"bio\": \"Tech enthusiast\"\n}"
-        },
-        "url": {
-          "raw": "http://localhost:8080/api/v1/users",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "8080",
-          "path": ["api", "v1", "users"]
-        }
-      }
-    },
-    {
-      "name": "Get User by ID",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "http://localhost:8080/api/v1/users/1",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "8080",
-          "path": ["api", "v1", "users", "1"]
-        }
-      }
-    },
-    {
-      "name": "Create Post",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json"
-          }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": 1,\n  \"content\": \"Hello from Central Park!\",\n  \"latitude\": 40.785091,\n  \"longitude\": -73.968285\n}"
-        },
-        "url": {
-          "raw": "http://localhost:8080/api/v1/posts",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "8080",
-          "path": ["api", "v1", "posts"]
-        }
-      }
-    },
-    {
-      "name": "Get Feed",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "http://localhost:8080/api/v1/feed?latitude=40.785091&longitude=-73.968285&radius_km=10&limit=20",
-          "protocol": "http",
-          "host": ["localhost"],
-          "port": "8080",
-          "path": ["api", "v1", "feed"],
-          "query": [
-            {
-              "key": "latitude",
-              "value": "40.785091"
-            },
-            {
-              "key": "longitude",
-              "value": "-73.968285"
-            },
-            {
-              "key": "radius_km",
-              "value": "10"
-            },
-            {
-              "key": "limit",
-              "value": "20"
-            }
-          ]
-        }
-      }
-    }
-  ]
-}
-```
-
-Save this as `geoloc-api.postman_collection.json` and import it into Postman.
-
----
-
-## Support
-
-For issues or questions, please open an issue on GitHub.
-
-## License
-
-MIT
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CASSANDRA_HOST` | `localhost` | Cassandra host |
+| `CASSANDRA_KEYSPACE` | `geoloc` | Keyspace name |
+| `JWT_SECRET` | (default) | JWT signing secret |
+| `PORT` | `8080` | Server port |
+| `UPLOAD_PATH` | `./uploads` | Upload directory |
+| `BASE_URL` | `http://localhost:8080` | Base URL for uploads |

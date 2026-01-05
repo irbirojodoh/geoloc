@@ -95,7 +95,7 @@ func main() {
 	router.POST("/auth/register", handlers.Register(userRepo))
 	router.POST("/auth/login", handlers.Login(userRepo))
 	router.POST("/auth/refresh", handlers.Refresh)
-	router.GET("/api/v1/feed", handlers.GetFeed(postRepo))
+	router.GET("/api/v1/feed", handlers.GetFeed(postRepo, userRepo))
 
 	// ============== PROTECTED ROUTES ==============
 	api := router.Group("/api/v1")
