@@ -75,7 +75,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 }
 
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
@@ -143,22 +143,48 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository) gin.Handl
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		// Enrich posts with user info (username, profile picture)
+		// Enrich posts with user info and location info
 		if len(posts) > 0 {
+			// Collect unique user IDs
 			userIDs := make([]string, 0, len(posts))
-			seen := make(map[string]bool)
+			seenUsers := make(map[string]bool)
+
+			// Collect unique geohashes and their coordinates
+			geohashes := make([]string, 0, len(posts))
+			seenGeohashes := make(map[string]bool)
+			latLngMap := make(map[string][2]float64)
+
 			for _, p := range posts {
-				if !seen[p.UserID] {
+				if !seenUsers[p.UserID] {
 					userIDs = append(userIDs, p.UserID)
-					seen[p.UserID] = true
+					seenUsers[p.UserID] = true
+				}
+				geohashPrefix := data.GetGeohashPrefix(p.Latitude, p.Longitude)
+				if !seenGeohashes[geohashPrefix] {
+					geohashes = append(geohashes, geohashPrefix)
+					seenGeohashes[geohashPrefix] = true
+					latLngMap[geohashPrefix] = [2]float64{p.Latitude, p.Longitude}
 				}
 			}
 
+			// Enrich with user info
 			userInfoMap, _ := userRepo.GetUsersByIDs(c.Request.Context(), userIDs)
 			for i := range posts {
 				if info, ok := userInfoMap[posts[i].UserID]; ok {
 					posts[i].Username = info.Username
 					posts[i].ProfilePictureURL = info.ProfilePictureURL
+				}
+			}
+
+			// Enrich with location info
+			if locRepo != nil {
+				locInfoMap, _ := locRepo.GetLocationsByGeohashes(c.Request.Context(), geohashes, latLngMap)
+				for i := range posts {
+					geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
+					if loc, ok := locInfoMap[geohashPrefix]; ok {
+						posts[i].LocationName = loc.Name
+						posts[i].Address = &loc.Address
+					}
 				}
 			}
 		}

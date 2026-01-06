@@ -28,9 +28,11 @@
 | POST | `/auth/register` | Register |
 | POST | `/auth/login` | Login |
 | POST | `/auth/refresh` | Refresh token |
-| GET | `/api/v1/feed` | Public feed (paginated) |
 
 ### Protected (Require Bearer token)
+
+**Feed**
+- `GET /feed` - Nearby posts (paginated, with address)
 
 **Profile & Users**
 - `PUT /users/me` - Update profile

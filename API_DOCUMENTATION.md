@@ -167,9 +167,17 @@ Authorization: Bearer <access_token>
 
 ---
 
-### Get Feed (Public)
+## Protected Endpoints
+
+> All endpoints below require `Authorization: Bearer <token>` header.
+
+---
+
+### Get Feed
 
 **Endpoint:** `GET /api/v1/feed`
+
+> ⚠️ **This endpoint requires authentication** (JWT Bearer token)
 
 This endpoint uses **cursor-based pagination** for efficient infinite scroll implementation.
 
@@ -212,8 +220,22 @@ This endpoint uses **cursor-based pagination** for efficient infinite scroll imp
 | latitude | float | Post location latitude |
 | longitude | float | Post location longitude |
 | geohash | string | Geohash of location |
+| location_name | string | Place name (e.g., "Kukusan") |
+| address | object | Full address object (see below) |
 | created_at | timestamp | ISO 8601 format |
 | distance_km | float | Distance from query location |
+
+**Address Object Fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| village | string | Village/neighborhood name |
+| city_district | string | District within city |
+| city | string | City name |
+| state | string | State/province |
+| region | string | Region |
+| postcode | string | Postal code |
+| country | string | Country name |
+| country_code | string | ISO country code (e.g., "id") |
 
 ---
 

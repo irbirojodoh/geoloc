@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,7 @@ func TestPostRepository_Integration(t *testing.T) {
 		})
 
 		// 4. Query within 5KM
-		posts, err := repo.GetNearbyPosts(ctx, centerLat, centerLng, 5.0, 10)
+		posts, err := repo.GetNearbyPosts(ctx, centerLat, centerLng, 5.0, 10, time.Time{})
 		require.NoError(t, err)
 
 		// Assertions

@@ -41,10 +41,12 @@ Initialize a Flutter project for **Geoloc**, a hyper-local social media app. The
 | POST | `/auth/login` | Login, receive JWT tokens |
 | POST | `/auth/refresh` | Refresh access token |
 
-### Feed (Public)
+### Protected Endpoints (Require `Authorization: Bearer <token>`)
+
+**Feed**
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/v1/feed?latitude=&longitude=&radius_km=&limit=` | Get nearby posts |
+| GET | `/api/v1/feed?latitude=&longitude=&radius_km=&limit=&cursor=` | Get nearby posts (paginated) |
 
 ### Protected Endpoints (Require `Authorization: Bearer <token>`)
 
@@ -122,16 +124,31 @@ class User {
 class Post {
   final String id;           // UUID
   final String userId;       // UUID
+  final String? username;    // Author's username
+  final String? profilePictureUrl;
   final String content;
   final List<String> mediaUrls;
   final double latitude;
   final double longitude;
   final String geohash;
+  final String? locationName; // e.g., "Kukusan"
+  final Address? address;     // Full address object
   final DateTime createdAt;
+  final double? distanceKm;   // Distance from query location
   final int likeCount;
   final int commentCount;
   final bool isLiked;        // Current user's like status
-  final User? author;        // Embedded user info
+}
+
+class Address {
+  final String? village;
+  final String? cityDistrict;
+  final String? city;
+  final String? state;
+  final String? region;
+  final String? postcode;
+  final String? country;
+  final String? countryCode;
 }
 ```
 
@@ -387,6 +404,99 @@ Set minimum deployment target to iOS 13.0 or higher in:
 // - Debounce search input (300-500ms)
 // - Exponential backoff on 429 errors
 // - Cache feed results
+```
+
+### 6. Feed Screen Implementation (Cursor Pagination)
+```dart
+// Feed is a PROTECTED endpoint - requires JWT token
+// Uses cursor-based pagination for infinite scroll
+
+class FeedProvider extends ChangeNotifier {
+  final ApiClient api;
+  final LocationService location;
+  
+  List<Post> posts = [];
+  String? nextCursor;
+  bool hasMore = true;
+  bool isLoading = false;
+  
+  Future<void> loadInitialFeed() async {
+    posts = [];
+    nextCursor = null;
+    hasMore = true;
+    await loadMore();
+  }
+  
+  Future<void> loadMore() async {
+    if (!hasMore || isLoading) return;
+    isLoading = true;
+    notifyListeners();
+    
+    try {
+      final position = await location.getCurrentPosition();
+      final response = await api.get(
+        '/api/v1/feed',
+        queryParameters: {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'radius_km': 10,
+          'limit': 20,
+          if (nextCursor != null) 'cursor': nextCursor,
+        },
+      );
+      
+      final data = response.data;
+      final newPosts = (data['data'] as List)
+          .map((json) => Post.fromJson(json))
+          .toList();
+          
+      posts.addAll(newPosts);
+      nextCursor = data['next_cursor'];
+      hasMore = data['has_more'] ?? false;
+    } catch (e) {
+      // Handle 401 - redirect to login
+      // Handle other errors
+    }
+    
+    isLoading = false;
+    notifyListeners();
+  }
+}
+```
+
+### 7. Displaying Location in Posts
+```dart
+// Each post now includes location_name and address object
+Widget buildLocationChip(Post post) {
+  final location = post.address?.village ?? 
+                   post.address?.cityDistrict ??
+                   post.locationName ??
+                   'Unknown';
+  final city = post.address?.city ?? '';
+  
+  return Row(
+    children: [
+      Icon(Icons.location_on, size: 14),
+      SizedBox(width: 4),
+      Text(
+        '$location${city.isNotEmpty ? ', $city' : ''}',
+        style: TextStyle(fontSize: 12, color: Colors.grey),
+      ),
+    ],
+  );
+}
+
+// Example address object from API:
+// {
+//   "village": "Kukusan",
+//   "city_district": "Beji",
+//   "city": "Depok",
+//   "state": "West Java",
+//   "region": "Java",
+//   "postcode": "16425",
+//   "country": "Indonesia",
+//   "country_code": "id"
+// }
 ```
 
 ---

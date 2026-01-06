@@ -12,6 +12,7 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/geocoding"
 	"social-geo-go/internal/handlers"
 	"social-geo-go/internal/middleware"
 	"social-geo-go/internal/push"
@@ -57,6 +58,9 @@ func main() {
 	// Initialize push service
 	pushService := push.NewLogPushService()
 
+	// Initialize geocoding client
+	geoClient := geocoding.NewNominatimClient("Geoloc/1.0 (contact@example.com)")
+
 	// Initialize repositories
 	postRepo := data.NewPostRepository(session)
 	userRepo := data.NewUserRepository(session)
@@ -65,6 +69,7 @@ func main() {
 	followRepo := data.NewFollowRepository(session)
 	locFollowRepo := data.NewLocationFollowRepository(session)
 	notifRepo := data.NewNotificationRepository(session)
+	locRepo := data.NewLocationRepository(session, geoClient)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -95,12 +100,14 @@ func main() {
 	router.POST("/auth/register", handlers.Register(userRepo))
 	router.POST("/auth/login", handlers.Login(userRepo))
 	router.POST("/auth/refresh", handlers.Refresh)
-	router.GET("/api/v1/feed", handlers.GetFeed(postRepo, userRepo))
 
 	// ============== PROTECTED ROUTES ==============
 	api := router.Group("/api/v1")
 	api.Use(auth.AuthRequired())
 	{
+		// Feed (now protected)
+		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo))
+
 		// Profile
 		api.PUT("/users/me", handlers.UpdateProfile(userRepo))
 
