@@ -74,7 +74,7 @@ func TestPostRepository_Integration(t *testing.T) {
 	})
 
 	t.Run("Get User Posts", func(t *testing.T) {
-		posts, err := repo.GetPostsByUser(ctx, user.ID, 10)
+		posts, err := repo.GetPostsByUser(ctx, user.ID, 10, time.Time{})
 		require.NoError(t, err)
 		assert.NotEmpty(t, posts)
 	})

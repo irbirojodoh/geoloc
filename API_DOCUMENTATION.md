@@ -217,9 +217,7 @@ This endpoint uses **cursor-based pagination** for efficient infinite scroll imp
 | profile_picture_url | string | Author's avatar URL |
 | content | string | Post text content |
 | media_urls | array | Media attachments (max 4) |
-| latitude | float | Post location latitude |
-| longitude | float | Post location longitude |
-| geohash | string | Geohash of location |
+| geohash | string | Geohash of location (no precise coords for privacy) |
 | location_name | string | Place name (e.g., "Kukusan") |
 | address | object | Full address object (see below) |
 | created_at | timestamp | ISO 8601 format |
@@ -257,9 +255,16 @@ GET /api/v1/feed?latitude=-6.3653&longitude=106.8269&limit=10
       "profile_picture_url": "http://localhost:8080/uploads/avatars/john.jpg",
       "content": "Beautiful morning in Jakarta! ☀️",
       "media_urls": ["http://localhost:8080/uploads/posts/abc.jpg"],
-      "latitude": -6.3653,
-      "longitude": 106.8269,
-      "geohash": "qqguy",
+      "geohash": "qqggy",
+      "location_name": "Kukusan",
+      "address": {
+        "village": "Kukusan",
+        "city_district": "Beji",
+        "city": "Depok",
+        "state": "West Java",
+        "country": "Indonesia",
+        "country_code": "id"
+      },
       "created_at": "2026-01-05T10:30:00Z",
       "distance_km": 0.5
     }
@@ -437,13 +442,54 @@ class FeedViewModel : ViewModel() {
 
 **Endpoint:** `GET /api/v1/users/:id/posts`
 
+This endpoint uses **cursor-based pagination**.
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| limit | int | 20 | Posts per page (max 100) |
+| cursor | string | - | Pagination cursor (base64 encoded) |
+
 **Success Response:** `200 OK`
 ```json
 {
+  "user": {
+    "id": "a6dc9f9e-ea1b-11f0-87a7-7a2e88169b55",
+    "username": "john_doe",
+    "full_name": "John Doe",
+    "profile_picture_url": "https://example.com/avatar.jpg"
+  },
   "count": 10,
-  "posts": [ ... ]
+  "data": [
+    {
+      "id": "a738c67a-ea1b-11f0-8816-7a2e88169b55",
+      "user_id": "a6dc9f9e-ea1b-11f0-87a7-7a2e88169b55",
+      "content": "The traffic today is unbelievable 🚗",
+      "media_urls": ["https://example.com/image1.jpg"],
+      "geohash": "qqggy",
+      "location_name": "Kukusan",
+      "address": {
+        "village": "Kukusan",
+        "city_district": "Beji",
+        "city": "Depok",
+        "state": "West Java",
+        "country": "Indonesia",
+        "country_code": "id"
+      },
+      "created_at": "2026-01-05T08:48:13.901Z"
+    }
+  ],
+  "has_more": true,
+  "next_cursor": "MjAyNi0wMS0wNVQwODo0ODoxM1o="
 }
 ```
+
+> **Note:** Posts no longer return precise coordinates (`latitude`, `longitude`) for privacy. Use `geohash` for approximate location.
+
+**Pagination:**
+- First request: Omit `cursor` parameter
+- Next page: Pass `next_cursor` as `cursor`
+- Stop when `has_more` is `false`
 
 ---
 

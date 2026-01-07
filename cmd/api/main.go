@@ -114,7 +114,7 @@ func main() {
 		// User routes
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo))
+		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo))
 
 		// Follow routes
 		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifRepo))

@@ -178,8 +178,8 @@ func (r *PostRepository) GetPostByID(ctx context.Context, id string) (*Post, err
 	return &post, nil
 }
 
-// GetPostsByUser retrieves all posts by a user
-func (r *PostRepository) GetPostsByUser(ctx context.Context, userIDStr string, limit int) ([]Post, error) {
+// GetPostsByUser retrieves all posts by a user with cursor-based pagination
+func (r *PostRepository) GetPostsByUser(ctx context.Context, userIDStr string, limit int, cursorTime time.Time) ([]Post, error) {
 	userID, err := gocql.ParseUUID(userIDStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user_id: %w", err)
@@ -189,12 +189,27 @@ func (r *PostRepository) GetPostsByUser(ctx context.Context, userIDStr string, l
 		limit = 50
 	}
 
-	iter := r.session.Query(`
-		SELECT post_id, content, media_urls, latitude, longitude, created_at
-		FROM posts_by_user
-		WHERE user_id = ?
-		LIMIT ?
-	`, userID, limit).WithContext(ctx).Iter()
+	var iter *gocql.Iter
+
+	if cursorTime.IsZero() {
+		// No cursor - get newest posts
+		iter = r.session.Query(`
+			SELECT post_id, content, media_urls, latitude, longitude, created_at
+			FROM posts_by_user
+			WHERE user_id = ?
+			ORDER BY created_at DESC
+			LIMIT ?
+		`, userID, limit).WithContext(ctx).Iter()
+	} else {
+		// With cursor - get posts older than cursor
+		iter = r.session.Query(`
+			SELECT post_id, content, media_urls, latitude, longitude, created_at
+			FROM posts_by_user
+			WHERE user_id = ? AND created_at < ?
+			ORDER BY created_at DESC
+			LIMIT ?
+		`, userID, cursorTime, limit).WithContext(ctx).Iter()
+	}
 
 	var posts []Post
 	var post Post

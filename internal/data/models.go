@@ -41,8 +41,8 @@ type Post struct {
 	ProfilePictureURL string   `json:"profile_picture_url,omitempty"`
 	Content           string   `json:"content"`
 	MediaURLs         []string `json:"media_urls,omitempty"`
-	Latitude          float64  `json:"latitude"`
-	Longitude         float64  `json:"longitude"`
+	Latitude          float64  `json:"-"` // Hidden - use geohash instead
+	Longitude         float64  `json:"-"` // Hidden - use geohash instead
 	Geohash           string   `json:"geohash,omitempty"`
 	// Location info (from cached geocoding)
 	LocationName string           `json:"location_name,omitempty"`

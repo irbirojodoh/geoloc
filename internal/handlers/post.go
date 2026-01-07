@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -225,11 +226,39 @@ func GetPost(repo *data.PostRepository) gin.HandlerFunc {
 }
 
 // GetUserPosts handles GET /api/v1/users/:id/posts
-func GetUserPosts(repo *data.PostRepository) gin.HandlerFunc {
+func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 
-		posts, err := repo.GetPostsByUser(c.Request.Context(), userID, 50)
+		// Get user info first
+		user, err := userRepo.GetUserByID(c.Request.Context(), userID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "User not found",
+			})
+			return
+		}
+
+		// Parse query parameters
+		cursor := c.Query("cursor")
+		limitStr := c.DefaultQuery("limit", "20")
+		var limit int
+		fmt.Sscanf(limitStr, "%d", &limit)
+
+		// Decode cursor for pagination
+		cursorTime, err := data.DecodeCursor(cursor)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid cursor",
+			})
+			return
+		}
+
+		// Apply default limit
+		limit = data.GetDefaultLimit(limit, 20, 100)
+
+		// Fetch one extra to determine if there are more posts
+		posts, err := repo.GetPostsByUser(c.Request.Context(), userID, limit+1, cursorTime)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch user posts",
@@ -238,9 +267,50 @@ func GetUserPosts(repo *data.PostRepository) gin.HandlerFunc {
 			return
 		}
 
+		// Determine if there are more posts
+		hasMore := len(posts) > limit
+		if hasMore {
+			posts = posts[:limit]
+		}
+
+		// Generate next cursor from last post's created_at
+		var nextCursor string
+		if hasMore && len(posts) > 0 {
+			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
+		}
+
+		// Enrich posts with location info
+		if locRepo != nil && len(posts) > 0 {
+			geohashes := make([]string, 0, len(posts))
+			latLngMap := make(map[string][2]float64)
+
+			for _, p := range posts {
+				geohashPrefix := data.GetGeohashPrefix(p.Latitude, p.Longitude)
+				geohashes = append(geohashes, geohashPrefix)
+				latLngMap[geohashPrefix] = [2]float64{p.Latitude, p.Longitude}
+			}
+
+			locInfoMap, _ := locRepo.GetLocationsByGeohashes(c.Request.Context(), geohashes, latLngMap)
+			for i := range posts {
+				geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
+				if loc, ok := locInfoMap[geohashPrefix]; ok {
+					posts[i].LocationName = loc.Name
+					posts[i].Address = &loc.Address
+				}
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"count": len(posts),
-			"posts": posts,
+			"user": gin.H{
+				"id":                  user.ID,
+				"username":            user.Username,
+				"full_name":           user.FullName,
+				"profile_picture_url": user.ProfilePictureURL,
+			},
+			"count":       len(posts),
+			"data":        posts,
+			"has_more":    hasMore,
+			"next_cursor": nextCursor,
 		})
 	}
 }
