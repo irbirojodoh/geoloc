@@ -62,7 +62,7 @@ type NominatimClient struct {
 func NewNominatimClient(userAgent string) *NominatimClient {
 	return &NominatimClient{
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: 30 * time.Second,
 		},
 		baseURL:     "https://nominatim.openstreetmap.org/reverse",
 		userAgent:   userAgent,

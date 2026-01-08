@@ -59,7 +59,7 @@ func main() {
 	pushService := push.NewLogPushService()
 
 	// Initialize geocoding client
-	geoClient := geocoding.NewNominatimClient("Geoloc/1.0 (contact@example.com)")
+	geoClient := geocoding.NewNominatimClient("Geoloc/1.0 (dev@geoloc.app)")
 
 	// Initialize repositories
 	postRepo := data.NewPostRepository(session)
@@ -108,7 +108,11 @@ func main() {
 		// Feed (now protected)
 		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo))
 
+		// Geocode
+		api.GET("/geocode/address", handlers.GetAddress(locRepo))
+
 		// Profile
+		api.GET("/users/me", handlers.GetCurrentUser(userRepo))
 		api.PUT("/users/me", handlers.UpdateProfile(userRepo))
 
 		// User routes

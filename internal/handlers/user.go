@@ -9,6 +9,40 @@ import (
 	"social-geo-go/internal/data"
 )
 
+// GetCurrentUser handles GET /api/v1/users/me - returns the logged-in user's profile
+func GetCurrentUser(repo *data.UserRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Get user_id from JWT token (set by auth middleware)
+		userID, exists := c.Get("user_id")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "User not authenticated",
+			})
+			return
+		}
+
+		user, err := repo.GetUserByID(c.Request.Context(), userID.(string))
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "User not found",
+				})
+				return
+			}
+
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Failed to fetch user",
+				"details": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"user": user,
+		})
+	}
+}
+
 // CreateUser handles POST /api/v1/users
 func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
