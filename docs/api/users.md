@@ -29,6 +29,24 @@ Endpoints for user profiles and the follow system.
 
 Same response as Get User Profile.
 
+## Get Current User Profile
+
+**Endpoint:** `GET /api/v1/users/me`
+
+**Response:** `200 OK`
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "john_doe",
+    "email": "john@example.com",
+    "full_name": "John Doe",
+    "profile_picture_url": "https://example.com/avatar.jpg",
+    "created_at": "2026-01-01T00:00:00Z"
+  }
+}
+```
+
 ## Update Profile
 
 **Endpoint:** `PUT /api/v1/users/me`

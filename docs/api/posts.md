@@ -41,7 +41,22 @@ Endpoints for creating, reading, and interacting with posts.
     "content": "Beautiful sunset! 🌅",
     "media_urls": ["https://example.com/upload.jpg"],
     "geohash": "qqggy",
+    "location_name": "Kukusan",
+    "address": {
+      "village": "Kukusan",
+      "city_district": "Beji",
+      "city": "Depok",
+      "state": "West Java",
+      "country": "Indonesia",
+      "country_code": "id"
+    },
     "created_at": "2026-01-05T10:30:00Z"
+  },
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "john_doe",
+    "full_name": "John Doe",
+    "profile_picture_url": "https://example.com/avatar.jpg"
   }
 }
 ```

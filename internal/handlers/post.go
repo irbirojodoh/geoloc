@@ -200,7 +200,8 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetPost handles GET /api/v1/posts/:id
-func GetPost(repo *data.PostRepository) gin.HandlerFunc {
+// GetPost handles GET /api/v1/posts/:id
+func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
@@ -219,9 +220,38 @@ func GetPost(repo *data.PostRepository) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		// Fetch user details
+		user, err := userRepo.GetUserByID(c.Request.Context(), post.UserID)
+		if err != nil {
+			// If user not found, we still return the post but with limited user info
+			// or handle as error depending on business logic. Here we just log and proceed.
+			// Ideally every post should have a valid user.
+		}
+
+		// Enrich with location name
+		if locRepo != nil {
+			geohashPrefix := data.GetGeohashPrefix(post.Latitude, post.Longitude)
+			locName, err := locRepo.GetOrFetch(c.Request.Context(), geohashPrefix, post.Latitude, post.Longitude)
+			if err == nil && locName != nil {
+				post.LocationName = locName.Name
+				post.Address = &locName.Address
+			}
+		}
+
+		response := gin.H{
 			"post": post,
-		})
+		}
+
+		if user != nil {
+			response["user"] = gin.H{
+				"id":                  user.ID,
+				"username":            user.Username,
+				"full_name":           user.FullName,
+				"profile_picture_url": user.ProfilePictureURL,
+			}
+		}
+
+		c.JSON(http.StatusOK, response)
 	}
 }
 

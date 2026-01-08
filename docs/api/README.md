@@ -40,6 +40,7 @@ All `/api/v1/*` endpoints require authentication.
 | [Comments](./comments.md) | `POST /api/v1/posts/:id/comments`, etc. |
 | [Notifications](./notifications.md) | `GET /api/v1/notifications`, etc. |
 | [Search](./search.md) | `GET /api/v1/search/users`, etc. |
+| [Geocode](./geocode.md) | `GET /api/v1/geocode/address` |
 
 ## Response Format
 

@@ -128,7 +128,7 @@ func main() {
 
 		// Post routes
 		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
-		api.GET("/posts/:id", handlers.GetPost(postRepo))
+		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo))
 
 		// Post likes
 		api.POST("/posts/:id/like", handlers.LikePost(likeRepo))
