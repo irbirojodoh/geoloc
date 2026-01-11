@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -21,6 +22,83 @@ func NewUserRepository(session *gocql.Session) *UserRepository {
 type UserInfo struct {
 	Username          string
 	ProfilePictureURL string
+}
+
+func (r *UserRepository) GetOrCreateOAuthUser(ctx context.Context, email, fullName, avatarURL string) (*User, bool, error) {
+	if email == "" {
+		return nil, false, fmt.Errorf("email is required from provider")
+	}
+
+	existingUser, err := r.GetUserByEmail(ctx, email)
+	if err == nil && existingUser != nil {
+		slog.Info(fmt.Sprintf("[OAUTH] User %s from OAuth already exist in the database", email))
+		// User exists - Login successful
+		return existingUser, false, nil
+	}
+
+	// 3. User does not exist - Prepare for creation
+	userID := gocql.TimeUUID()
+	now := time.Now()
+
+	// 4. Generate a unique username
+	// Strategy: Use the name part of the email + random timestamp to ensure uniqueness
+	// e.g., "john.doe" -> "john.doe_173546"
+	baseName := strings.Split(email, "@")[0]
+	// Sanitize: replace non-alphanumeric chars with underscore
+	baseName = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			return r
+		}
+		return '_'
+	}, baseName)
+
+	username := fmt.Sprintf("%s_%d", baseName, now.Unix()%100000)
+
+	// 5. Insert new user into Cassandra
+	// Note: Password hash is empty string "" effectively disabling password login for this account
+	query := `
+		INSERT INTO users (
+			id, 
+			username, 
+			email, 
+			full_name, 
+			bio, 
+			profile_picture_url, 
+			password_hash, 
+			created_at, 
+			updated_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	err = r.session.Query(query,
+		userID,
+		username,
+		email,
+		fullName,
+		"Joined via Social Login", // Default bio
+		avatarURL,
+		"", // Empty password hash
+		now,
+		now,
+	).WithContext(ctx).Exec()
+
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create oauth user: %w", err)
+	}
+
+	// 6. Return the newly created user object
+	newUser := &User{
+		ID:                userID.String(),
+		Username:          username,
+		Email:             email,
+		FullName:          fullName,
+		Bio:               "Joined via Social Login",
+		ProfilePictureURL: avatarURL,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+
+	return newUser, true, nil
 }
 
 // GetUsersByIDs retrieves usernames and profile pictures for multiple user IDs

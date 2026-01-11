@@ -101,3 +101,77 @@ func TestUserRepository_Integration(t *testing.T) {
 		assert.True(t, foundAlphaOne, "Search should retrieve matching users")
 	})
 }
+
+func TestUserRepository_OAuth(t *testing.T) {
+	repo := NewUserRepository(testSession)
+	ctx := context.Background()
+
+	// Shared data for the tests
+	email := "oauth_test@example.com"
+	fullName := "OAuth Tester"
+	avatarURL := "https://example.com/oauth_avatar.jpg"
+	var firstUserID string
+
+	t.Run("1. Create New User (First Login)", func(t *testing.T) {
+		// Action
+		user, isNew, err := repo.GetOrCreateOAuthUser(ctx, email, fullName, avatarURL)
+
+		// Assertions
+		require.NoError(t, err)
+		assert.True(t, isNew, "Should be marked as a new user")
+		assert.NotEmpty(t, user.ID)
+		assert.Equal(t, email, user.Email)
+		assert.Equal(t, fullName, user.FullName)
+		assert.Equal(t, avatarURL, user.ProfilePictureURL)
+
+		// Verify username generation logic (oauth_test_...)
+		assert.Contains(t, user.Username, "oauth_test")
+
+		// Verify persistence by querying directly
+		savedUser, err := repo.GetUserByID(ctx, user.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "Joined via Social Login", savedUser.Bio)
+
+		// Store ID for next test
+		firstUserID = user.ID
+	})
+
+	t.Run("2. Return Existing User (Subsequent Login)", func(t *testing.T) {
+		// Action: Login with same email
+		// We pass different name/avatar to ensure it doesn't accidentally create a new record
+		// Note: Current logic doesn't update profile on login, just retrieves
+		user, isNew, err := repo.GetOrCreateOAuthUser(ctx, email, "Different Name", "http://different.url")
+
+		// Assertions
+		require.NoError(t, err)
+		assert.False(t, isNew, "Should NOT be marked as new user")
+		assert.Equal(t, firstUserID, user.ID, "ID should match the existing user")
+		assert.Equal(t, email, user.Email)
+	})
+
+	t.Run("3. Handle Empty Email (Apple Privacy Edge Case)", func(t *testing.T) {
+		// Action
+		user, isNew, err := repo.GetOrCreateOAuthUser(ctx, "", "No Email User", "")
+
+		// Assertions
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "email is required")
+		assert.Nil(t, user)
+		assert.False(t, isNew)
+	})
+
+	t.Run("4. Handle Username Special Characters", func(t *testing.T) {
+		// Email with dots and special chars
+		complexEmail := "jane.doe+test@gmail.com"
+
+		user, _, err := repo.GetOrCreateOAuthUser(ctx, complexEmail, "Jane", "")
+		require.NoError(t, err)
+
+		// Ensure the username was sanitized (no @ or + allowed usually in simple generation)
+		// Our logic maps non-alphanumeric to underscore
+		// "jane.doe+test" -> "jane_doe_test..."
+		assert.NotContains(t, user.Username, "+")
+		assert.NotContains(t, user.Username, "@")
+		assert.Contains(t, user.Username, "jane_doe_test")
+	})
+}

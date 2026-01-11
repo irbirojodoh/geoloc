@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 
+	"github.com/lmittmann/tint"
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/geocoding"
@@ -24,6 +26,15 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
+
+	slog.SetDefault(slog.New(
+		tint.NewHandler(os.Stdout, &tint.Options{
+			Level: slog.LevelDebug,
+		}),
+	))
+
+	// Initialize OAuth Providers
+	auth.InitOAuth()
 
 	// Cassandra connection
 	cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
@@ -99,6 +110,9 @@ func main() {
 	// ============== PUBLIC ROUTES ==============
 	router.POST("/auth/register", handlers.Register(userRepo))
 	router.POST("/auth/login", handlers.Login(userRepo))
+	router.GET("/auth/:provider/login", handlers.LoginOAuth())
+	router.GET("/auth/:provider/callback", handlers.CompleteOAuth(userRepo))
+	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo))
 	router.POST("/auth/refresh", handlers.Refresh)
 
 	// ============== PROTECTED ROUTES ==============
@@ -169,8 +183,10 @@ func main() {
 
 	// Start server
 	port := getEnv("PORT", "8080")
-	log.Printf("Server starting on port %s\n", port)
-	log.Printf("Uploads directory: %s\n", uploadPath)
+
+	slog.Info("Starting Server", "url", baseURL)
+	slog.Info("Uploads directory: ", "upload_path", uploadPath)
+
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v\n", err)
 	}
@@ -180,5 +196,6 @@ func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
+	slog.Warn("[ENV] Undefined variable", "variable", key, "default", defaultValue)
 	return defaultValue
 }

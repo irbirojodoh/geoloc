@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"time"
 
@@ -74,13 +75,20 @@ const (
 	RefreshTokenDuration = 7 * 24 * time.Hour // 7 days
 )
 
+// Global JWT Secret variable
+var jWTSecret = []byte{}
+
 // getSecretKey returns the JWT secret from environment or a default
 func getSecretKey() []byte {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "your-super-secret-key-change-in-production"
+	if len(jWTSecret) <= 0 {
+		secret := os.Getenv("JWT_SECRET")
+		if secret == "" {
+			slog.Warn("[JWT] Undefined variable JWT_SECRET, using default value")
+			secret = "your-super-secret-key-change-in-production"
+		}
+		return []byte(secret)
 	}
-	return []byte(secret)
+	return jWTSecret
 }
 
 // GenerateTokenPair creates both access and refresh tokens for a user
