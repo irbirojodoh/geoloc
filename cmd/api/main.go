@@ -11,6 +11,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"social-geo-go/internal/auth"
+	"social-geo-go/internal/cache"
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/geocoding"
 	"social-geo-go/internal/handlers"
@@ -50,6 +51,18 @@ func main() {
 	defer session.Close()
 	log.Println("Successfully connected to Cassandra")
 
+	// Initialize Redis connection
+	var likeCounter *cache.LikeCounter
+	redisClient, err := cache.NewRedisClient()
+	if err != nil {
+		log.Printf("WARNING: Failed to connect to Redis: %v", err)
+		log.Println("Like counters will use Cassandra fallback (slower)")
+	} else {
+		defer redisClient.Close()
+		log.Println("Successfully connected to Redis")
+		likeCounter = cache.NewLikeCounter(redisClient)
+	}
+
 	// Initialize storage
 	uploadPath := getEnv("UPLOAD_PATH", "./uploads")
 	baseURL := getEnv("BASE_URL", "http://localhost:8080")
@@ -64,7 +77,7 @@ func main() {
 	// Initialize repositories
 	postRepo := data.NewPostRepository(session)
 	userRepo := data.NewUserRepository(session)
-	likeRepo := data.NewLikeRepository(session)
+	likeRepo := data.NewLikeRepository(session, likeCounter)
 	commentRepo := data.NewCommentRepository(session)
 	followRepo := data.NewFollowRepository(session)
 	locFollowRepo := data.NewLocationFollowRepository(session)
@@ -106,7 +119,7 @@ func main() {
 	api.Use(auth.AuthRequired())
 	{
 		// Feed (now protected)
-		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo))
+		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo))
 
 		// Geocode
 		api.GET("/geocode/address", handlers.GetAddress(locRepo))
@@ -118,7 +131,7 @@ func main() {
 		// User routes
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo))
+		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo))
 
 		// Follow routes
 		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifRepo))
@@ -128,11 +141,12 @@ func main() {
 
 		// Post routes
 		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
-		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo))
+		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
 
-		// Post likes
+		// Post likes (legacy + new idempotent toggle)
 		api.POST("/posts/:id/like", handlers.LikePost(likeRepo))
 		api.DELETE("/posts/:id/like", handlers.UnlikePost(likeRepo))
+		api.POST("/posts/:id/toggle-like", handlers.TogglePostLike(likeRepo))
 
 		// Post comments
 		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo))
@@ -142,6 +156,7 @@ func main() {
 		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo))
 		api.POST("/comments/:id/like", handlers.LikeComment(likeRepo))
 		api.DELETE("/comments/:id/like", handlers.UnlikeComment(likeRepo))
+		api.POST("/comments/:id/toggle-like", handlers.ToggleCommentLike(likeRepo))
 		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
 
 		// Location follow routes

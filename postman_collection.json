@@ -74,23 +74,69 @@
       ]
     },
     {
-      "name": "Feed (Public)",
+      "name": "Feed (Protected)",
       "item": [
         {
           "name": "Get Nearby Feed",
           "request": {
             "method": "GET",
             "url": {
-              "raw": "{{baseUrl}}/api/v1/feed?latitude=40.7589&longitude=-73.9851&radius_km=10&limit=50",
+              "raw": "{{baseUrl}}/api/v1/feed?latitude=-6.3694&longitude=106.8246&radius_km=5&limit=20",
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "feed"],
               "query": [
-                {"key": "latitude", "value": "40.7589"},
-                {"key": "longitude", "value": "-73.9851"},
-                {"key": "radius_km", "value": "10"},
-                {"key": "limit", "value": "50"}
+                {"key": "latitude", "value": "-6.3694"},
+                {"key": "longitude", "value": "106.8246"},
+                {"key": "radius_km", "value": "5"},
+                {"key": "limit", "value": "20"}
               ]
-            }
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get Feed (Next Page)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feed?latitude=-6.3694&longitude=106.8246&limit=20&cursor=YOUR_CURSOR_HERE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "feed"],
+              "query": [
+                {"key": "latitude", "value": "-6.3694"},
+                {"key": "longitude", "value": "106.8246"},
+                {"key": "limit", "value": "20"},
+                {"key": "cursor", "value": "YOUR_CURSOR_HERE"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Geocode (Protected)",
+      "item": [
+        {
+          "name": "Get Address from Coordinates",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/geocode/address?lat=-6.3694&lng=106.8246",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "geocode", "address"],
+              "query": [
+                {"key": "lat", "value": "-6.3694"},
+                {"key": "lng", "value": "106.8246"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
           }
         }
       ]
@@ -98,6 +144,31 @@
     {
       "name": "Users (Protected)",
       "item": [
+        {
+          "name": "Get Current User (Me)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/me",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/v1/users/me",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Smith\",\n  \"bio\": \"Updated bio\"\n}"
+            }
+          }
+        },
         {
           "name": "Get User by ID",
           "request": {
@@ -122,7 +193,54 @@
           "name": "Get User's Posts",
           "request": {
             "method": "GET",
-            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/posts",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/posts?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "users", "USER_UUID_HERE", "posts"],
+              "query": [
+                {"key": "limit", "value": "20"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Follow User",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/follow",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Unfollow User",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/follow",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get Followers",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/followers",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get Following",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/users/USER_UUID_HERE/following",
             "header": [
               {"key": "Authorization", "value": "Bearer {{accessToken}}"}
             ]
@@ -144,7 +262,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": \"USER_UUID_HERE\",\n  \"content\": \"Hello from Times Square!\",\n  \"media_urls\": [\"https://example.com/photo1.jpg\"],\n  \"latitude\": 40.7589,\n  \"longitude\": -73.9851\n}"
+              "raw": "{\n  \"content\": \"Hello from Depok!\",\n  \"media_urls\": [\"https://example.com/photo1.jpg\"],\n  \"latitude\": -6.3694,\n  \"longitude\": 106.8246\n}"
             }
           }
         },
@@ -248,6 +366,159 @@
           "request": {
             "method": "DELETE",
             "url": "{{baseUrl}}/api/v1/comments/COMMENT_UUID_HERE",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search (Protected)",
+      "item": [
+        {
+          "name": "Search Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search/users?q=john&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "search", "users"],
+              "query": [
+                {"key": "q", "value": "john"},
+                {"key": "limit", "value": "20"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Search Posts",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search/posts?q=hello&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "search", "posts"],
+              "query": [
+                {"key": "q", "value": "hello"},
+                {"key": "limit", "value": "20"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications (Protected)",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/notifications",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/v1/notifications/NOTIFICATION_UUID_HERE/read",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/v1/notifications/read-all",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Uploads (Protected)",
+      "item": [
+        {
+          "name": "Upload Avatar",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/upload/avatar",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {"key": "file", "type": "file", "src": ""}
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload Post Media",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/upload/post",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {"key": "file", "type": "file", "src": ""}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Location Follow (Protected)",
+      "item": [
+        {
+          "name": "Follow Location",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/locations/follow",
+            "header": [
+              {"key": "Content-Type", "value": "application/json"},
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"geohash\": \"qqggy\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Unfollow Location",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/locations/qqggy/follow",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Get Followed Locations",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/locations/following",
             "header": [
               {"key": "Authorization", "value": "Bearer {{accessToken}}"}
             ]

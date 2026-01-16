@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
 )
 
@@ -76,7 +77,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 }
 
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
@@ -144,6 +145,9 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
+		// Get current user ID for like status
+		currentUserID := auth.GetUserID(c)
+
 		// Enrich posts with user info and location info
 		if len(posts) > 0 {
 			// Collect unique user IDs
@@ -155,7 +159,11 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			seenGeohashes := make(map[string]bool)
 			latLngMap := make(map[string][2]float64)
 
+			// Collect post IDs for like info
+			postIDs := make([]string, 0, len(posts))
+
 			for _, p := range posts {
+				postIDs = append(postIDs, p.ID)
 				if !seenUsers[p.UserID] {
 					userIDs = append(userIDs, p.UserID)
 					seenUsers[p.UserID] = true
@@ -188,6 +196,17 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 					}
 				}
 			}
+
+			// Enrich with like info
+			if likeRepo != nil {
+				likeInfoMap, _ := likeRepo.GetLikesForPosts(c.Request.Context(), postIDs, currentUserID)
+				for i := range posts {
+					if info, ok := likeInfoMap[posts[i].ID]; ok {
+						posts[i].LikeCount = info.LikeCount
+						posts[i].IsLiked = info.IsLiked
+					}
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, data.PaginatedResponse{
@@ -200,8 +219,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetPost handles GET /api/v1/posts/:id
-// GetPost handles GET /api/v1/posts/:id
-func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
+func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
@@ -238,6 +256,18 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			}
 		}
 
+		// Enrich with like info
+		currentUserID := auth.GetUserID(c)
+		if likeRepo != nil {
+			likeCount, _ := likeRepo.GetLikeCount(c.Request.Context(), data.TargetTypePost, id)
+			post.LikeCount = likeCount
+
+			if currentUserID != "" {
+				isLiked, _ := likeRepo.HasUserLiked(c.Request.Context(), data.TargetTypePost, id, currentUserID)
+				post.IsLiked = isLiked
+			}
+		}
+
 		response := gin.H{
 			"post": post,
 		}
@@ -256,7 +286,7 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetUserPosts handles GET /api/v1/users/:id/posts
-func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
+func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 
@@ -309,23 +339,42 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		// Enrich posts with location info
-		if locRepo != nil && len(posts) > 0 {
+		// Get current user ID for like status
+		currentUserID := auth.GetUserID(c)
+
+		// Enrich posts with location and like info
+		if len(posts) > 0 {
 			geohashes := make([]string, 0, len(posts))
 			latLngMap := make(map[string][2]float64)
+			postIDs := make([]string, 0, len(posts))
 
 			for _, p := range posts {
+				postIDs = append(postIDs, p.ID)
 				geohashPrefix := data.GetGeohashPrefix(p.Latitude, p.Longitude)
 				geohashes = append(geohashes, geohashPrefix)
 				latLngMap[geohashPrefix] = [2]float64{p.Latitude, p.Longitude}
 			}
 
-			locInfoMap, _ := locRepo.GetLocationsByGeohashes(c.Request.Context(), geohashes, latLngMap)
-			for i := range posts {
-				geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
-				if loc, ok := locInfoMap[geohashPrefix]; ok {
-					posts[i].LocationName = loc.Name
-					posts[i].Address = &loc.Address
+			// Enrich with location info
+			if locRepo != nil {
+				locInfoMap, _ := locRepo.GetLocationsByGeohashes(c.Request.Context(), geohashes, latLngMap)
+				for i := range posts {
+					geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
+					if loc, ok := locInfoMap[geohashPrefix]; ok {
+						posts[i].LocationName = loc.Name
+						posts[i].Address = &loc.Address
+					}
+				}
+			}
+
+			// Enrich with like info
+			if likeRepo != nil {
+				likeInfoMap, _ := likeRepo.GetLikesForPosts(c.Request.Context(), postIDs, currentUserID)
+				for i := range posts {
+					if info, ok := likeInfoMap[posts[i].ID]; ok {
+						posts[i].LikeCount = info.LikeCount
+						posts[i].IsLiked = info.IsLiked
+					}
 				}
 			}
 		}

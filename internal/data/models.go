@@ -15,12 +15,16 @@ type User struct {
 	Bio               string     `json:"bio,omitempty"`
 	PhoneNumber       string     `json:"phone_number,omitempty"`
 	ProfilePictureURL string     `json:"profile_picture_url,omitempty"`
+	CoverImageURL     string     `json:"cover_image_url,omitempty"`
 	PasswordHash      string     `json:"-"`
 	LastOnline        *time.Time `json:"last_online,omitempty"`
 	LastIPAddress     string     `json:"-"` // Don't expose in JSON
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
+
+// DefaultCoverImageURL is the default cover image for users
+const DefaultCoverImageURL = "https://shared.irphotoarts.cloud/about/image%20-%202.jpg"
 
 // CreateUserRequest represents the request body for creating a user
 type CreateUserRequest struct {
@@ -47,10 +51,13 @@ type Post struct {
 	// Location info (from cached geocoding)
 	LocationName string           `json:"location_name,omitempty"`
 	Address      *LocationAddress `json:"address,omitempty"`
-	IPAddress    string           `json:"-"` // Don't expose in JSON
-	UserAgent    string           `json:"-"` // Don't expose in JSON
-	CreatedAt    time.Time        `json:"created_at"`
-	Distance     float64          `json:"distance_km,omitempty"`
+	// Like info
+	LikeCount int64     `json:"like_count"`
+	IsLiked   bool      `json:"is_liked"` // Whether current user has liked this post
+	IPAddress string    `json:"-"`        // Don't expose in JSON
+	UserAgent string    `json:"-"`        // Don't expose in JSON
+	CreatedAt time.Time `json:"created_at"`
+	Distance  float64   `json:"distance_km,omitempty"`
 }
 
 // CreatePostRequest represents the request body for creating a post
@@ -91,6 +98,7 @@ type Like struct {
 	TargetID   string    `json:"target_id"`
 	UserID     string    `json:"user_id"`
 	CreatedAt  time.Time `json:"created_at"`
+	LikeCount  int64     `json:"like_count,omitempty"`
 }
 
 // LikeRequest represents a like action request

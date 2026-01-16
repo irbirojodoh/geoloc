@@ -10,7 +10,8 @@ import (
 )
 
 func TestLikeRepository_Integration(t *testing.T) {
-	repo := NewLikeRepository(testSession)
+	// Pass nil for likeCounter to test Cassandra-only mode
+	repo := NewLikeRepository(testSession, nil)
 	ctx := context.Background()
 
 	// Mock IDs

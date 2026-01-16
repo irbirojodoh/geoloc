@@ -33,7 +33,7 @@ Endpoints for creating, reading, and interacting with posts.
 **Endpoint:** `GET /api/v1/posts/:id`
 
 **Response:** `200 OK`
-```json
+```json 
 {
   "post": {
     "id": "a6b4ff20-ea1b-11f0-879d-7a2e88169b55",
