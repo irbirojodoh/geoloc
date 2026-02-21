@@ -18,6 +18,11 @@
 # Ignore environment files
 .env
 .env.local
+.env.*
+!.env.example
+!.env.development
+!.env.staging
+!.env.production
 
 # Ignore IDE files
 .vscode/
@@ -39,3 +44,7 @@ Thumbs.db
 
 # Ignore air tmp directory (if using air for hot reload)
 /tmp/
+
+# Ignore user uploads
+/uploads/*
+!/uploads/.gitkeep
