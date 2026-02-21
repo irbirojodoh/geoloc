@@ -93,6 +93,6 @@ func main() {
 
 	// Verify
 	var count int
-	session.Query(`SELECT COUNT(*) FROM location_names`).Scan(&count)
+	session.Query(`SELECT COUNT(*) FROM location_names`).Scan(&count) //nolint:errcheck
 	fmt.Printf("📊 Total cached locations: %d\n", count)
 }

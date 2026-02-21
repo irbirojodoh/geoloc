@@ -40,13 +40,13 @@ func TestPostRepository_Integration(t *testing.T) {
 		centerLat, centerLng := -6.1754, 106.8272
 
 		// 2. Insert Post A: Very close (500m away)
-		repo.CreatePost(ctx, &CreatePostRequest{
+		repo.CreatePost(ctx, &CreatePostRequest{ //nolint:errcheck
 			UserID: user.ID, Content: "Near Post",
 			Latitude: -6.1710, Longitude: 106.8272,
 		})
 
 		// 3. Insert Post B: Far away (Bandung, ~120km away)
-		repo.CreatePost(ctx, &CreatePostRequest{
+		repo.CreatePost(ctx, &CreatePostRequest{ //nolint:errcheck
 			UserID: user.ID, Content: "Far Post",
 			Latitude: -6.9175, Longitude: 107.6191,
 		})

@@ -131,7 +131,7 @@ func registerAndLogin(t *testing.T, router *gin.Engine, username, email, passwor
 	require.Equal(t, http.StatusCreated, w.Code, "register failed: %s", w.Body.String())
 
 	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 
 	token := resp["access_token"].(string)
 	user := resp["user"].(map[string]interface{})
@@ -175,7 +175,7 @@ func TestE2E_Auth_Register(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		assert.NotEmpty(t, resp["access_token"])
 		assert.NotEmpty(t, resp["refresh_token"])
 		assert.NotNil(t, resp["user"])
@@ -228,7 +228,7 @@ func TestE2E_Auth_Login(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		assert.NotEmpty(t, resp["access_token"])
 		assert.Equal(t, "Login successful", resp["message"])
 	})

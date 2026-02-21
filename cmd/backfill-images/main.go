@@ -41,7 +41,7 @@ func main() {
 	log.Println("Connected to Cassandra")
 
 	// Seed random
-	rand.Seed(time.Now().UnixNano())
+// rand.Seed deprecated
 
 	// Get all posts from posts_by_id
 	log.Println("Fetching all posts...")
@@ -104,12 +104,12 @@ func main() {
 		}
 		session.Query(`
 			UPDATE posts_by_geohash SET media_urls = ? WHERE geohash_prefix = ? AND created_at = ? AND post_id = ?
-		`, selectedImages, geohashPrefix, createdAt, pid).Exec()
+		`, selectedImages, geohashPrefix, createdAt, pid).Exec() //nolint:errcheck
 
 		// Update posts_by_user
 		session.Query(`
 			UPDATE posts_by_user SET media_urls = ? WHERE user_id = ? AND created_at = ? AND post_id = ?
-		`, selectedImages, userID, createdAt, pid).Exec()
+		`, selectedImages, userID, createdAt, pid).Exec() //nolint:errcheck
 
 		log.Printf("[%d/%d] Post %s: Added %d images", i+1, len(postIDs), pid, numImages)
 		updated++

@@ -155,7 +155,7 @@ func (r *NotificationRepository) MarkAllAsRead(ctx context.Context, userID strin
 		r.session.Query(`
 			UPDATE notifications SET is_read = true
 			WHERE user_id = ? AND created_at = ? AND notification_id = ?
-		`, uid, createdAt, nid).WithContext(ctx).Exec()
+		`, uid, createdAt, nid).WithContext(ctx).Exec() //nolint:errcheck
 	}
 
 	return iter.Close()

@@ -82,7 +82,7 @@ func main() {
 	defer session.Close()
 
 	log.Println("Connected to Cassandra")
-	rand.Seed(time.Now().UnixNano())
+// rand.Seed deprecated
 
 	// Create users and store their IDs
 	userIDs := make([]gocql.UUID, len(usernames))

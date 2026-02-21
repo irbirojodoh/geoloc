@@ -1,5 +1,8 @@
 package handlers
 
+type contextKey string
+const providerKey contextKey = "provider"
+
 import (
 	"context"
 	"fmt"
@@ -20,7 +23,7 @@ func LoginOAuth() gin.HandlerFunc {
 		provider := c.Param("provider")
 
 		// Inject provider into request context for Gothic to find
-		ctx := context.WithValue(c.Request.Context(), "provider", provider)
+		ctx := context.WithValue(c.Request.Context(), providerKey, provider)
 		c.Request = c.Request.WithContext(ctx)
 
 		// Start the OAuth dance
@@ -35,7 +38,7 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 		provider := c.Param("provider")
 
 		// Inject provider into request context
-		ctx := context.WithValue(c.Request.Context(), "provider", provider)
+		ctx := context.WithValue(c.Request.Context(), providerKey, provider)
 		c.Request = c.Request.WithContext(ctx)
 
 		// 1. Complete the auth exchange

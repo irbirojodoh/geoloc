@@ -29,7 +29,7 @@ test-e2e: test-handlers
 # ============== LINTING ==============
 
 lint:
-	golangci-lint run ./...
+	go run github.com/golangci/golangci-lint/cmd/golangci-lint@latest run ./...
 
 # ============== DOCKER ==============
 

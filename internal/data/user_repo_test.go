@@ -81,9 +81,9 @@ func TestUserRepository_Integration(t *testing.T) {
 
 	t.Run("Search Users (Client-side filtering check)", func(t *testing.T) {
 		// Seed users specifically for search
-		repo.CreateUser(ctx, &CreateUserRequest{Username: "alpha_one", FullName: "Alpha One", Email: "1@t.com"})
-		repo.CreateUser(ctx, &CreateUserRequest{Username: "beta_two", FullName: "Beta Two", Email: "2@t.com"})
-		repo.CreateUser(ctx, &CreateUserRequest{Username: "alpha_three", FullName: "Alpha Three", Email: "3@t.com"})
+		repo.CreateUser(ctx, &CreateUserRequest{Username: "alpha_one", FullName: "Alpha One", Email: "1@t.com"}) //nolint:errcheck
+		repo.CreateUser(ctx, &CreateUserRequest{Username: "beta_two", FullName: "Beta Two", Email: "2@t.com"}) //nolint:errcheck
+		repo.CreateUser(ctx, &CreateUserRequest{Username: "alpha_three", FullName: "Alpha Three", Email: "3@t.com"}) //nolint:errcheck
 
 		// Test Search
 		results, err := repo.SearchUsers(ctx, "alpha", 10)

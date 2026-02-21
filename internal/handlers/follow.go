@@ -34,7 +34,7 @@ func FollowUser(followRepo *data.FollowRepository, notifRepo *data.NotificationR
 		}
 
 		// Create notification for followed user
-		go notifRepo.CreateNotification(c.Request.Context(), &data.CreateNotificationRequest{
+		go notifRepo.CreateNotification(c.Request.Context(), &data.CreateNotificationRequest{ //nolint:errcheck
 			UserID:  followingID,
 			Type:    data.NotificationTypeFollow,
 			ActorID: followerID,

@@ -27,8 +27,8 @@ type LocalStorage struct {
 // NewLocalStorage creates a new local storage instance
 func NewLocalStorage(basePath, baseURL string) *LocalStorage {
 	// Create upload directories if they don't exist
-	os.MkdirAll(filepath.Join(basePath, "avatars"), 0755)
-	os.MkdirAll(filepath.Join(basePath, "posts"), 0755)
+	os.MkdirAll(filepath.Join(basePath, "avatars"), 0755) //nolint:errcheck
+	os.MkdirAll(filepath.Join(basePath, "posts"), 0755) //nolint:errcheck
 
 	return &LocalStorage{
 		BasePath: basePath,

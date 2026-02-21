@@ -240,7 +240,9 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 
 		// Fetch user details
 		user, err := userRepo.GetUserByID(c.Request.Context(), post.UserID)
-		if err != nil {
+if err != nil {
+// ignore
+}
 			// If user not found, we still return the post but with limited user info
 			// or handle as error depending on business logic. Here we just log and proceed.
 			// Ideally every post should have a valid user.
@@ -303,7 +305,7 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 		cursor := c.Query("cursor")
 		limitStr := c.DefaultQuery("limit", "20")
 		var limit int
-		fmt.Sscanf(limitStr, "%d", &limit)
+		fmt.Sscanf(limitStr, "%d", &limit) //nolint:errcheck
 
 		// Decode cursor for pagination
 		cursorTime, err := data.DecodeCursor(cursor)

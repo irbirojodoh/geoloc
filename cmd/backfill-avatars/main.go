@@ -41,7 +41,7 @@ func main() {
 	log.Println("Connected to Cassandra")
 
 	// Seed random
-	rand.Seed(time.Now().UnixNano())
+// rand.Seed deprecated
 
 	// Get all users
 	log.Println("Fetching all users...")
