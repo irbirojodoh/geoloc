@@ -1,11 +1,11 @@
 package geocoding
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 )
 
@@ -54,7 +54,6 @@ type NominatimClient struct {
 	baseURL     string
 	userAgent   string
 	rateLimiter *time.Ticker
-	mu          sync.Mutex
 }
 
 // NewNominatimClient creates a new Nominatim client
@@ -71,11 +70,15 @@ func NewNominatimClient(userAgent string) *NominatimClient {
 }
 
 // ReverseGeocode converts coordinates to location info
-func (c *NominatimClient) ReverseGeocode(lat, lng float64) (*LocationInfo, error) {
-	// Rate limit - wait for ticker
-	c.mu.Lock()
-	<-c.rateLimiter.C
-	c.mu.Unlock()
+func (c *NominatimClient) ReverseGeocode(ctx context.Context, lat, lng float64) (*LocationInfo, error) {
+	// Rate limit - wait for ticker or ctx cancellation
+	// Removes the global mutex to prevent goroutine starvation on high concurrency
+	select {
+	case <-c.rateLimiter.C:
+		// Rate limit passed, proceed
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 
 	// Build URL with zoom=15 for neighborhood-level detail
 	params := url.Values{}
@@ -87,7 +90,7 @@ func (c *NominatimClient) ReverseGeocode(lat, lng float64) (*LocationInfo, error
 
 	reqURL := fmt.Sprintf("%s?%s", c.baseURL, params.Encode())
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -69,7 +69,6 @@ func (r *LikeRepository) tryAddLike(ctx context.Context, targetType string, targ
 		IF NOT EXISTS
 	`, targetType, targetID, userID, now).
 		WithContext(ctx).
-		Consistency(gocql.Quorum).
 		MapScanCAS(resultMap)
 
 	if err != nil {
@@ -141,7 +140,6 @@ func (r *LikeRepository) tryRemoveLike(ctx context.Context, targetType string, t
 		IF EXISTS
 	`, targetType, targetID, userID).
 		WithContext(ctx).
-		Consistency(gocql.Quorum).
 		MapScanCAS(resultMap)
 
 	if err != nil {
@@ -176,6 +174,9 @@ func (r *LikeRepository) tryRemoveLike(ctx context.Context, targetType string, t
 
 // insertLegacyLike maintains backward compatibility with the likes table
 func (r *LikeRepository) insertLegacyLike(ctx context.Context, targetType string, targetID, userID gocql.UUID, createdAt time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
 	_ = r.session.Query(`
 		INSERT INTO likes (target_type, target_id, user_id, created_at)
 		VALUES (?, ?, ?, ?)
@@ -184,6 +185,9 @@ func (r *LikeRepository) insertLegacyLike(ctx context.Context, targetType string
 
 // deleteLegacyLike removes from the legacy likes table
 func (r *LikeRepository) deleteLegacyLike(ctx context.Context, targetType string, targetID, userID gocql.UUID) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
 	_ = r.session.Query(`
 		DELETE FROM likes WHERE target_type = ? AND target_id = ? AND user_id = ?
 	`, targetType, targetID, userID).WithContext(ctx).Exec()

@@ -96,7 +96,7 @@ func (r *LocationRepository) GetOrFetch(ctx context.Context, geohashPrefix strin
 	}
 
 	// Fetch from Nominatim
-	info, err := r.geocoder.ReverseGeocode(lat, lng)
+	info, err := r.geocoder.ReverseGeocode(ctx, lat, lng)
 	if err != nil {
 		return nil, fmt.Errorf("geocoding failed: %w", err)
 	}

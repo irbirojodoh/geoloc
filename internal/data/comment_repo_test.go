@@ -15,8 +15,10 @@ func TestCommentRepository_Integration(t *testing.T) {
 	ctx := context.Background()
 
 	// Setup data
-	user, _ := userRepo.CreateUser(ctx, &CreateUserRequest{Username: "commenter", Email: "c@t.com"})
-	post, _ := postRepo.CreatePost(ctx, &CreatePostRequest{UserID: user.ID, Content: "Topic", Latitude: 0, Longitude: 0})
+	user, err := userRepo.CreateUser(ctx, &CreateUserRequest{Username: "commenter", Email: "c@t.com"})
+	require.NoError(t, err)
+	post, err := postRepo.CreatePost(ctx, &CreatePostRequest{UserID: user.ID, Content: "Topic", Latitude: 0, Longitude: 0})
+	require.NoError(t, err)
 
 	var rootComment *Comment
 

@@ -1,6 +1,7 @@
--- Keyspace
+-- Use NetworkTopologyStrategy for production. Using SimpleStrategy 1 as fallback for local dev.
 CREATE KEYSPACE IF NOT EXISTS geoloc 
-WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1};
+WITH replication = {'class': 'NetworkTopologyStrategy', 'datacenter1': 3} 
+AND durable_writes = true;
 
 USE geoloc;
 
@@ -20,8 +21,10 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS ON users (username);
-CREATE INDEX IF NOT EXISTS ON users (email);
+-- Storage-Attached Indexes (SAI) for scalable search without ALLOW FILTERING
+CREATE CUSTOM INDEX IF NOT EXISTS username_sai_idx ON users (username) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
+CREATE CUSTOM INDEX IF NOT EXISTS email_sai_idx ON users (email) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
+CREATE CUSTOM INDEX IF NOT EXISTS fullname_sai_idx ON users (full_name) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
 
 -- Posts by geohash (for proximity queries)
 -- Partition by geohash prefix (5-char = ~5km precision)

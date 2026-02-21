@@ -308,32 +308,26 @@ func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit in
 		limit = 20
 	}
 
-	// Cassandra doesn't support LIKE, so we use ALLOW FILTERING with exact match
-	// In production, use a search index like Elasticsearch
+	// Utilize Cassandra SAI indexes for exact matching (case-insensitive)
 	iter := r.session.Query(`
 		SELECT id, username, email, full_name, bio, profile_picture_url, created_at, updated_at
 		FROM users
-		LIMIT ?
-		ALLOW FILTERING
-	`, limit*5).WithContext(ctx).Iter()
+		WHERE username = ?
+	`, query).WithContext(ctx).Iter()
 
 	var users []User
 	var user User
 	var id gocql.UUID
 
 	for iter.Scan(&id, &user.Username, &user.Email, &user.FullName, &user.Bio, &user.ProfilePictureURL, &user.CreatedAt, &user.UpdatedAt) {
-		// Client-side filtering for username contains
-		if strings.Contains(strings.ToLower(user.Username), strings.ToLower(query)) ||
-			strings.Contains(strings.ToLower(user.FullName), strings.ToLower(query)) {
-			user.ID = id.String()
-			// Apply default cover image if empty
-			if user.CoverImageURL == "" {
-				user.CoverImageURL = DefaultCoverImageURL
-			}
-			users = append(users, user)
-			if len(users) >= limit {
-				break
-			}
+		user.ID = id.String()
+		// Apply default cover image if empty
+		if user.CoverImageURL == "" {
+			user.CoverImageURL = DefaultCoverImageURL
+		}
+		users = append(users, user)
+		if len(users) >= limit {
+			break
 		}
 	}
 

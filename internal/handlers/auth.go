@@ -37,7 +37,7 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid request body",
+				"error": "Invalid request body",
 			})
 			return
 		}
@@ -75,7 +75,7 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 		user, err := userRepo.CreateUser(c.Request.Context(), createReq)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create user",
+				"error": "Failed to create user",
 			})
 			return
 		}
@@ -106,7 +106,7 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid request body",
+				"error": "Invalid request body",
 			})
 			return
 		}
@@ -169,7 +169,7 @@ func Refresh(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Invalid request body",
+			"error": "Invalid request body",
 		})
 		return
 	}

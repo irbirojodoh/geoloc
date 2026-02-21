@@ -35,7 +35,7 @@ func TogglePostLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, req.Like)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to toggle like",
+				"error": "Failed to toggle like",
 			})
 			return
 		}
@@ -68,7 +68,7 @@ func ToggleCommentLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, req.Like)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to toggle like",
+				"error": "Failed to toggle like",
 			})
 			return
 		}
@@ -97,7 +97,7 @@ func LikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to like post",
+				"error": "Failed to like post",
 			})
 			return
 		}
@@ -124,7 +124,7 @@ func UnlikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, false)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to unlike post",
+				"error": "Failed to unlike post",
 			})
 			return
 		}
@@ -151,7 +151,7 @@ func LikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to like comment",
+				"error": "Failed to like comment",
 			})
 			return
 		}
@@ -178,7 +178,7 @@ func UnlikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, false)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to unlike comment",
+				"error": "Failed to unlike comment",
 			})
 			return
 		}

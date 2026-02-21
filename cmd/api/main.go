@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -55,6 +58,8 @@ func main() {
 	cluster.Consistency = gocql.Quorum
 	cluster.Timeout = 10 * time.Second
 	cluster.ConnectTimeout = 10 * time.Second
+	cluster.NumConns = 4 // Connection Pooling limit
+	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
 
 	// Retry connection with backoff
 	var session *gocql.Session
@@ -109,8 +114,11 @@ func main() {
 	// Setup Gin router
 	router := gin.Default()
 
-	// Global rate limiter (100 requests per minute per IP)
-	router.Use(middleware.RateLimitByIP(100, time.Minute))
+	// Global rate limiter (100 requests per minute per IP) backed by Redis
+	router.Use(middleware.RateLimitByIP(redisClient, 100, time.Minute))
+
+	// Global request timeout (10 seconds) to prevent frozen external calls
+	router.Use(middleware.TimeoutMiddleware(10 * time.Second))
 
 	// CORS configuration — restrict to allowed origins
 	allowedOrigins := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
@@ -237,9 +245,32 @@ func main() {
 	slog.Info("Starting Server", "url", baseURL)
 	slog.Info("Uploads directory: ", "upload_path", uploadPath)
 
-	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v\n", err)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
 	}
+
+	// Initializing the server in a goroutine so that it won't block the graceful shutdown handling below
+	go func() {
+		log.Printf("Server starting on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server with a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatal("Server forced to shutdown:", err)
+	}
+
+	log.Println("Server exiting")
 }
 
 func getEnv(key, defaultValue string) string {

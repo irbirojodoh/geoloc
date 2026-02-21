@@ -36,7 +36,7 @@ func TestMain(m *testing.M) {
 	host, _ := cassandraContainer.ConnectionHost(ctx)
 	cluster := gocql.NewCluster(host)
 	cluster.Keyspace = "geoloc"
-	cluster.Consistency = gocql.Quorum
+	cluster.Consistency = gocql.One
 	cluster.Timeout = 10 * time.Second
 	// Use a simple strategy for single-node test cluster
 	cluster.ProtoVersion = 4
@@ -52,6 +52,9 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		log.Fatalf("failed to connect to cassandra: %s", err)
 	}
+
+	// Downgrade replication factor for single-node test environment to allow LWT Quorum
+	_ = testSession.Query(`ALTER KEYSPACE geoloc WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}`).Exec()
 
 	// 3. Run Tests
 	exitCode := m.Run()
