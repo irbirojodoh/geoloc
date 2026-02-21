@@ -1,8 +1,5 @@
 package handlers
 
-type contextKey string
-const providerKey contextKey = "provider"
-
 import (
 	"context"
 	"fmt"
@@ -15,6 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/markbates/goth/gothic"
 )
+
+type contextKey string
+
+const providerKey contextKey = "provider"
 
 // LoginOAuth redirects the user to the provider (Google/Apple)
 // /auth/:provider/login

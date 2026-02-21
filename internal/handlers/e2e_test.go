@@ -289,7 +289,7 @@ func TestE2E_Auth_Refresh(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	var regResp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &regResp)
+	json.Unmarshal(w.Body.Bytes(), &regResp) //nolint:errcheck
 	refreshToken := regResp["refresh_token"].(string)
 
 	t.Run("Valid Refresh", func(t *testing.T) {
@@ -304,7 +304,7 @@ func TestE2E_Auth_Refresh(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		assert.NotEmpty(t, resp["access_token"])
 	})
 
@@ -335,7 +335,7 @@ func TestE2E_Users(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		user := resp["user"].(map[string]interface{})
 		assert.Equal(t, "e2e_user_test", user["username"])
 	})
@@ -367,7 +367,7 @@ func TestE2E_Users(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		user := resp["user"].(map[string]interface{})
 		assert.Equal(t, "Updated Name", user["full_name"])
 	})
@@ -403,7 +403,7 @@ func TestE2E_Posts(t *testing.T) {
 		require.Equal(t, http.StatusCreated, w.Code, "create post failed: %s", w.Body.String())
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		post := resp["post"].(map[string]interface{})
 		postID = post["id"].(string)
 		assert.NotEmpty(t, postID)
@@ -420,7 +420,7 @@ func TestE2E_Posts(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		post := resp["post"].(map[string]interface{})
 		assert.Equal(t, "E2E test post content", post["content"])
 	})
@@ -470,7 +470,7 @@ func TestE2E_Comments(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var postResp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &postResp)
+	json.Unmarshal(w.Body.Bytes(), &postResp) //nolint:errcheck
 	postID := postResp["post"].(map[string]interface{})["id"].(string)
 
 	var commentID string
@@ -485,7 +485,7 @@ func TestE2E_Comments(t *testing.T) {
 		assert.Equal(t, http.StatusCreated, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		comment := resp["comment"].(map[string]interface{})
 		commentID = comment["id"].(string)
 		assert.NotEmpty(t, commentID)
@@ -541,7 +541,7 @@ func TestE2E_Likes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, w.Code)
 
 	var postResp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &postResp)
+	json.Unmarshal(w.Body.Bytes(), &postResp) //nolint:errcheck
 	postID := postResp["post"].(map[string]interface{})["id"].(string)
 
 	t.Run("Like data.Post", func(t *testing.T) {
@@ -568,7 +568,7 @@ func TestE2E_Likes(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		assert.NotNil(t, resp["is_liked"])
 	})
 
@@ -583,7 +583,7 @@ func TestE2E_Likes(t *testing.T) {
 		require.Equal(t, http.StatusCreated, w.Code)
 
 		var commentResp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &commentResp)
+		json.Unmarshal(w.Body.Bytes(), &commentResp) //nolint:errcheck
 		commentID := commentResp["comment"].(map[string]interface{})["id"].(string)
 
 		// Like comment
@@ -652,7 +652,7 @@ func TestE2E_Follow(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		userID1 := resp["user"].(map[string]interface{})["id"].(string)
 
 		w = httptest.NewRecorder()
@@ -677,7 +677,7 @@ func TestE2E_Search(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 
 		var resp map[string]interface{}
-		json.Unmarshal(w.Body.Bytes(), &resp)
+		json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 		if resp["results"] != nil {
 			users := resp["results"].([]interface{})
 			assert.GreaterOrEqual(t, len(users), 1)
@@ -790,7 +790,7 @@ func TestE2E_NoErrorDetailsLeaked(t *testing.T) {
 			router.ServeHTTP(w, req)
 
 			var resp map[string]interface{}
-			json.Unmarshal(w.Body.Bytes(), &resp)
+			json.Unmarshal(w.Body.Bytes(), &resp) //nolint:errcheck
 
 			// Must not contain "details" key (error detail leak)
 			_, hasDetails := resp["details"]

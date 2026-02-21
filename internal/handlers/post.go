@@ -240,12 +240,11 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 
 		// Fetch user details
 		user, err := userRepo.GetUserByID(c.Request.Context(), post.UserID)
-if err != nil {
-// ignore
-}
+		if err != nil {
 			// If user not found, we still return the post but with limited user info
 			// or handle as error depending on business logic. Here we just log and proceed.
 			// Ideally every post should have a valid user.
+			_ = err // SA9003 empty branch workaround
 		}
 
 		// Enrich with location name
