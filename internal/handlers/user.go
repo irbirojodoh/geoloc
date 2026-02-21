@@ -32,7 +32,6 @@ func GetCurrentUser(repo *data.UserRepository) gin.HandlerFunc {
 
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch user",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -51,7 +50,6 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -68,7 +66,6 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to create user",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -104,7 +101,6 @@ func GetUser(repo *data.UserRepository) gin.HandlerFunc {
 
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch user",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -131,7 +127,6 @@ func GetUserByUsername(repo *data.UserRepository) gin.HandlerFunc {
 
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch user",
-				"details": err.Error(),
 			})
 			return
 		}

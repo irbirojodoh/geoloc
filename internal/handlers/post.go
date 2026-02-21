@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -19,7 +20,6 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -64,7 +64,6 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to create post",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -84,7 +83,6 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 		if err := c.ShouldBindQuery(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid query parameters",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -128,7 +126,6 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch feed",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -231,9 +228,9 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 				})
 				return
 			}
+			slog.Error("Failed to fetch post", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch post",
-				"details": err.Error(),
+				"error": "Failed to fetch post",
 			})
 			return
 		}
@@ -323,7 +320,6 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to fetch user posts",
-				"details": err.Error(),
 			})
 			return
 		}

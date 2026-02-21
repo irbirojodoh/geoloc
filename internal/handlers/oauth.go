@@ -13,10 +13,6 @@ import (
 	"github.com/markbates/goth/gothic"
 )
 
-type contextKey string
-
-const providerKey contextKey = "provider"
-
 // LoginOAuth redirects the user to the provider (Google/Apple)
 // /auth/:provider/login
 func LoginOAuth() gin.HandlerFunc {
@@ -24,7 +20,7 @@ func LoginOAuth() gin.HandlerFunc {
 		provider := c.Param("provider")
 
 		// Inject provider into request context for Gothic to find
-		ctx := context.WithValue(c.Request.Context(), providerKey, provider)
+		ctx := context.WithValue(c.Request.Context(), "provider", provider) //nolint:staticcheck
 		c.Request = c.Request.WithContext(ctx)
 
 		// Start the OAuth dance
@@ -39,7 +35,7 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 		provider := c.Param("provider")
 
 		// Inject provider into request context
-		ctx := context.WithValue(c.Request.Context(), providerKey, provider)
+		ctx := context.WithValue(c.Request.Context(), "provider", provider) //nolint:staticcheck
 		c.Request = c.Request.WithContext(ctx)
 
 		// 1. Complete the auth exchange
@@ -47,7 +43,6 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Authentication failed",
-				"details": err.Error(),
 			})
 			return
 		}

@@ -25,7 +25,6 @@ func CreateComment(commentRepo *data.CommentRepository) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -44,7 +43,6 @@ func CreateComment(commentRepo *data.CommentRepository) gin.HandlerFunc {
 			}
 			c.JSON(status, gin.H{
 				"error":   "Failed to create comment",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -72,7 +70,6 @@ func GetComments(commentRepo *data.CommentRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to get comments",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -109,7 +106,6 @@ func ReplyToComment(commentRepo *data.CommentRepository) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -128,7 +124,6 @@ func ReplyToComment(commentRepo *data.CommentRepository) gin.HandlerFunc {
 			}
 			c.JSON(status, gin.H{
 				"error":   "Failed to create reply",
-				"details": err.Error(),
 			})
 			return
 		}

@@ -28,7 +28,6 @@ func RegisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}

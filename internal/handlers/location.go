@@ -22,7 +22,6 @@ func FollowLocation(locRepo *data.LocationFollowRepository) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -41,7 +40,6 @@ func FollowLocation(locRepo *data.LocationFollowRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to follow location",
-				"details": err.Error(),
 			})
 			return
 		}

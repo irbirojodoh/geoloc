@@ -22,7 +22,6 @@ func UpdateProfile(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":   "Invalid request body",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -31,7 +30,6 @@ func UpdateProfile(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to update profile",
-				"details": err.Error(),
 			})
 			return
 		}

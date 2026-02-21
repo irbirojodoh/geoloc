@@ -67,7 +67,6 @@ func GetAddress(locRepo *data.LocationRepository) gin.HandlerFunc {
 			fmt.Printf("[GEOCODE ERROR] lat=%f lng=%f geohash=%s error=%v\n", lat, lng, geohashPrefix, err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to get address",
-				"details": err.Error(),
 			})
 			return
 		}

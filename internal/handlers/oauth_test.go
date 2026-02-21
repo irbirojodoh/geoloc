@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"social-geo-go/internal/data"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
@@ -14,7 +16,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
-	"social-geo-go/internal/data"
 )
 
 // MockProvider implements goth.Provider for testing
@@ -87,6 +88,14 @@ func TestOAuthFlow_Integration(t *testing.T) {
 	}
 
 	goth.UseProviders(googleMock, appleMock)
+
+	// Configure Gothic Session Store for tests
+	store := sessions.NewCookieStore([]byte("test-session-secret"))
+	store.MaxAge(300)
+	store.Options.Path = "/"
+	store.Options.HttpOnly = true
+	store.Options.Secure = false // Important for httptest
+	gothic.Store = store
 
 	// 3. Setup Router
 	gin.SetMode(gin.TestMode)

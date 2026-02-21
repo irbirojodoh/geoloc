@@ -57,7 +57,6 @@ func UploadAvatar(store storage.Storage) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to upload file",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -109,7 +108,6 @@ func UploadPostMedia(store storage.Storage) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to upload file",
-				"details": err.Error(),
 			})
 			return
 		}

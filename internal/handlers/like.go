@@ -36,7 +36,6 @@ func TogglePostLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to toggle like",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -70,7 +69,6 @@ func ToggleCommentLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to toggle like",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -100,7 +98,6 @@ func LikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to like post",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -128,7 +125,6 @@ func UnlikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to unlike post",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -156,7 +152,6 @@ func LikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to like comment",
-				"details": err.Error(),
 			})
 			return
 		}
@@ -184,7 +179,6 @@ func UnlikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "Failed to unlike comment",
-				"details": err.Error(),
 			})
 			return
 		}
