@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -11,7 +13,6 @@ import (
 	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 
-	"github.com/lmittmann/tint"
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/cache"
 	"social-geo-go/internal/data"
@@ -20,13 +21,23 @@ import (
 	"social-geo-go/internal/middleware"
 	"social-geo-go/internal/push"
 	"social-geo-go/internal/storage"
+
+	"github.com/lmittmann/tint"
 )
 
 func main() {
-	// Load environment variables
+	// Load environment variables (env-specific file first, then .env fallback)
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv == "" {
+		appEnv = "development"
+	}
+	if err := godotenv.Load(".env." + appEnv); err != nil {
+		log.Printf("No .env.%s file found", appEnv)
+	}
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using environment variables")
 	}
+	slog.Info("Environment loaded", "APP_ENV", appEnv)
 
 	slog.SetDefault(slog.New(
 		tint.NewHandler(os.Stdout, &tint.Options{
@@ -101,23 +112,47 @@ func main() {
 	// Global rate limiter (100 requests per minute per IP)
 	router.Use(middleware.RateLimitByIP(100, time.Minute))
 
-	// CORS configuration
+	// CORS configuration — restrict to allowed origins
+	allowedOrigins := getEnv("ALLOWED_ORIGINS", "http://localhost:3000")
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"*"}
+	config.AllowOrigins = strings.Split(allowedOrigins, ",")
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	router.Use(cors.New(config))
+	slog.Info("CORS configured", "allowed_origins", config.AllowOrigins)
 
 	// Serve uploaded files
 	router.Static("/uploads", uploadPath)
 
-	// Health check
+	// Health check (checks Cassandra + Redis)
 	router.GET("/health", func(c *gin.Context) {
+		health := gin.H{"status": "ok"}
+
+		// Check Cassandra
 		if err := session.Query("SELECT now() FROM system.local").Exec(); err != nil {
-			c.JSON(500, gin.H{"status": "unhealthy", "error": err.Error()})
-			return
+			health["status"] = "degraded"
+			health["cassandra"] = "unhealthy"
+		} else {
+			health["cassandra"] = "ok"
 		}
-		c.JSON(200, gin.H{"status": "ok", "database": "cassandra"})
+
+		// Check Redis
+		if redisClient != nil {
+			if err := redisClient.Ping(c.Request.Context()); err != nil {
+				health["status"] = "degraded"
+				health["redis"] = "unhealthy"
+			} else {
+				health["redis"] = "ok"
+			}
+		} else {
+			health["redis"] = "not configured"
+		}
+
+		status := http.StatusOK
+		if health["status"] != "ok" {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, health)
 	})
 
 	// ============== PUBLIC ROUTES ==============

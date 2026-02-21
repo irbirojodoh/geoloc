@@ -1,0 +1,9 @@
+.git
+.github
+.env
+.env.*
+uploads/
+docs/
+*.md
+Makefile
+Caddyfile

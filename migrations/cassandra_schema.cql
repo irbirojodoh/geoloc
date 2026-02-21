@@ -169,3 +169,20 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMP,
     PRIMARY KEY ((user_id), created_at, notification_id)
 ) WITH CLUSTERING ORDER BY (created_at DESC, notification_id ASC);
+
+-- ============== LIKES (V2) ==============
+CREATE TABLE IF NOT EXISTS like_state (
+    target_type TEXT,          -- 'post' or 'comment'
+    target_id UUID,            -- post_id or comment_id
+    user_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((target_type, target_id), user_id)
+);
+
+CREATE TABLE IF NOT EXISTS likes_by_user (
+    user_id UUID,
+    target_type TEXT,
+    target_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((user_id), created_at, target_id)
+) WITH CLUSTERING ORDER BY (created_at DESC, target_id ASC);

@@ -19,8 +19,7 @@ services:
     volumes:
       - cassandra_data_1:/var/lib/cassandra
     healthcheck:
-      test:
-        ["CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'describe cluster'"]
+      test: [ "CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'describe cluster'" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -74,7 +73,7 @@ services:
     volumes:
       - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql
       - ./migrations/mock_data.cql:/schema/mock_data.cql
-    entrypoint: ["sh", "-c"]
+    entrypoint: [ "sh", "-c" ]
     # Note: We connect to 'cassandra-1' specifically
     command: |
       "echo 'Applying Schema...' &&
@@ -91,13 +90,55 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 3s
       retries: 5
+  # ============== GEOLOC API ==============
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: geoloc-api
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - CASSANDRA_HOST=cassandra-1
+      - REDIS_HOST=redis
+    depends_on:
+      cassandra-db-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health" ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ============== TLS REVERSE PROXY ==============
+  caddy:
+    image: caddy:2-alpine
+    container_name: geoloc-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   cassandra_data_1:
   cassandra_data_2:
   cassandra_data_3:
   redis_data:
+  caddy_data:

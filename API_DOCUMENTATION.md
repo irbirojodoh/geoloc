@@ -392,6 +392,29 @@ class FeedViewModel : ViewModel() {
 
 ### Profile
 
+#### Get Current User Profile
+
+**Endpoint:** `GET /api/v1/users/me`
+
+**Description:** Returns the authenticated user's profile information.
+
+**Success Response:** `200 OK`
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "johndoe",
+    "email": "john@example.com",
+    "full_name": "John Doe",
+    "bio": "Tech enthusiast",
+    "profile_picture_url": "http://...",
+    "followers_count": 150,
+    "following_count": 75,
+    "created_at": "2025-12-13T19:30:00Z"
+  }
+}
+```
+
 #### Update Current User Profile
 
 **Endpoint:** `PUT /api/v1/users/me`
