@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -60,8 +61,14 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 			return
 		}
 
-		// Hash password
-		passwordHash := auth.HashPassword(req.Password)
+		// Hash password with bcrypt
+		passwordHash, err := auth.HashPassword(req.Password)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to process password",
+			})
+			return
+		}
 
 		// Create user
 		createReq := &data.CreateUserRequest{
@@ -146,8 +153,8 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 			return
 		}
 
-		// Update last seen (non-blocking, ignore errors)
-		go userRepo.UpdateLastSeen(c.Request.Context(), user.ID, c.ClientIP()) //nolint:errcheck
+		// Update last seen (non-blocking, use Background context so it survives request completion)
+		go userRepo.UpdateLastSeen(context.Background(), user.ID, c.ClientIP()) //nolint:errcheck
 
 		c.JSON(http.StatusOK, gin.H{
 			"message":       "Login successful",

@@ -56,7 +56,7 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 			oauthUser.AvatarURL,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error", "details": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process sign-in"})
 			return
 		}
 

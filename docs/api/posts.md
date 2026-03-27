@@ -6,6 +6,8 @@ Endpoints for creating, reading, and interacting with posts.
 
 **Endpoint:** `POST /api/v1/posts`
 
+> 🔒 **Security Note:** The author is strictly inferred from the `Authorization: Bearer <token>` context. Do not send a `user_id` in the request body.
+
 **Request:**
 ```json
 {

@@ -27,6 +27,8 @@
 |--------|----------|-------------|
 | POST | `/auth/register` | Register |
 | POST | `/auth/login` | Login |
+| POST | `/auth/google/token` | Native Google Sign-In |
+| POST | `/auth/apple/token` | Native Apple Sign-In |
 | POST | `/auth/refresh` | Refresh token |
 
 ### Protected (Require Bearer token)
@@ -160,7 +162,7 @@ internal/data/
 |----------|---------|-------------|
 | `CASSANDRA_HOST` | `localhost` | DB host |
 | `CASSANDRA_KEYSPACE` | `geoloc` | Keyspace |
-| `JWT_SECRET` | (default) | JWT secret |
+| `JWT_SECRET` | (fatal if missing) | JWT secret |
 | `PORT` | `8080` | Server port |
 | `UPLOAD_PATH` | `./uploads` | Upload dir |
 | `BASE_URL` | `http://localhost:8080` | Base URL |

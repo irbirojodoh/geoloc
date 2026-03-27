@@ -1,28 +1,21 @@
 package auth
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-
-	"golang.org/x/crypto/sha3"
+	"golang.org/x/crypto/bcrypt"
 )
 
-// HashPassword creates a two-chain hash: SHA3-512 -> SHA-256
-// h1 = SHA3-512(password)
-// h2 = SHA-256(h1) <- stored in database
-func HashPassword(password string) string {
-	// First hash: SHA3-512
-	h1 := sha3.Sum512([]byte(password))
-
-	// Second hash: SHA-256
-	h2 := sha256.Sum256(h1[:])
-
-	// Return hex-encoded string
-	return hex.EncodeToString(h2[:])
+// HashPassword creates a bcrypt hash of the password with the default cost factor.
+// bcrypt automatically generates and embeds a random salt, making rainbow tables infeasible.
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }
 
-// VerifyPassword checks if the provided password matches the stored hash
+// VerifyPassword checks if the provided password matches the stored bcrypt hash.
+// Uses bcrypt's constant-time comparison to prevent timing attacks.
 func VerifyPassword(password, storedHash string) bool {
-	computedHash := HashPassword(password)
-	return computedHash == storedHash
+	return bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)) == nil
 }

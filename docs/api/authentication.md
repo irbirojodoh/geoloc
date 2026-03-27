@@ -60,6 +60,48 @@ Authenticate and receive tokens.
     "username": "john_doe",
     "email": "john@example.com",
     "full_name": "John Doe"
+}
+```
+
+## Mobile-Native Social Login
+
+For mobile apps, you can authenticate users using native ID tokens instead of web redirects.
+
+### Google Sign-In
+
+**Endpoint:** `POST /auth/google/token`
+
+**Request:**
+```json
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIs..."
+}
+```
+
+### Apple Sign-In
+
+**Endpoint:** `POST /auth/apple/token`
+
+**Request:**
+```json
+{
+  "id_token": "eyJhbGciOiJSUzI1NiIs...",
+  "full_name": "Jane Doe" // NOTE: Apple only provides this on the very first sign-in
+}
+```
+
+**Success Response (Both):** `200 OK`
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "refresh_token": "eyJhbGciOiJIUzI1NiIs...",
+  "expires_in": 900,
+  "is_new_user": true,
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "social_user",
+    "email": "user@example.com",
+    "full_name": "Social User"
   }
 }
 ```

@@ -78,16 +78,17 @@ const (
 // Global JWT Secret variable
 var jWTSecret = []byte{}
 
-// getSecretKey returns the JWT secret from environment or a default
+// getSecretKey returns the JWT secret. Terminates the process if JWT_SECRET is not set.
 func getSecretKey() []byte {
-	if len(jWTSecret) <= 0 {
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
-			slog.Warn("[JWT] Undefined variable JWT_SECRET, using default value")
-			secret = "your-super-secret-key-change-in-production"
-		}
-		return []byte(secret)
+	if len(jWTSecret) > 0 {
+		return jWTSecret
 	}
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		slog.Error("[JWT] JWT_SECRET environment variable is not set. Refusing to start with an insecure default.")
+		os.Exit(1)
+	}
+	jWTSecret = []byte(secret)
 	return jWTSecret
 }
 

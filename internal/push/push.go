@@ -3,6 +3,8 @@ package push
 import (
 	"context"
 	"log"
+	"log/slog"
+	"sync"
 )
 
 // PushService defines the interface for push notifications
@@ -18,9 +20,10 @@ type DeviceToken struct {
 	Platform string `json:"platform"` // "ios", "android", "web"
 }
 
-// LogPushService is a mock implementation that logs notifications
-// Replace with FCM/APNs implementation for production
+// LogPushService is a mock implementation that logs notifications.
+// Replace with FCM/APNs implementation for production.
 type LogPushService struct {
+	mu     sync.RWMutex
 	tokens map[string][]DeviceToken // userID -> tokens
 }
 
@@ -33,16 +36,24 @@ func NewLogPushService() *LogPushService {
 
 // RegisterDevice registers a device token for a user
 func (s *LogPushService) RegisterDevice(userID, token, platform string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.tokens[userID] = append(s.tokens[userID], DeviceToken{
 		UserID:   userID,
 		Token:    token,
 		Platform: platform,
 	})
-	log.Printf("[PUSH] Registered device for user %s: %s (%s)", userID, token[:20]+"...", platform)
+	if len(token) > 20 {
+		slog.Info("push: registered device", "user_id", userID, "platform", platform, "token_prefix", token[:20])
+	}
 }
 
 // UnregisterDevice removes a device token
 func (s *LogPushService) UnregisterDevice(userID, token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	tokens := s.tokens[userID]
 	var filtered []DeviceToken
 	for _, t := range tokens {
@@ -56,21 +67,27 @@ func (s *LogPushService) UnregisterDevice(userID, token string) {
 // Send sends a push notification to a specific device
 func (s *LogPushService) Send(ctx context.Context, deviceToken, title, body string, data map[string]string) error {
 	// In production, implement actual FCM/APNs calls here
-	log.Printf("[PUSH] Sending to device: %s - Title: %s, Body: %s", deviceToken[:20]+"...", title, body)
+	if len(deviceToken) > 20 {
+		log.Printf("[PUSH] Sending to device: %s... - Title: %s, Body: %s", deviceToken[:20], title, body)
+	}
 	return nil
 }
 
 // SendToUser sends a push notification to all of a user's devices
 func (s *LogPushService) SendToUser(ctx context.Context, userID, title, body string, data map[string]string) error {
-	tokens := s.tokens[userID]
+	s.mu.RLock()
+	tokens := make([]DeviceToken, len(s.tokens[userID]))
+	copy(tokens, s.tokens[userID])
+	s.mu.RUnlock()
+
 	if len(tokens) == 0 {
-		log.Printf("[PUSH] No devices registered for user %s", userID)
+		slog.Debug("push: no devices registered for user", "user_id", userID)
 		return nil
 	}
 
 	for _, token := range tokens {
 		if err := s.Send(ctx, token.Token, title, body, data); err != nil {
-			log.Printf("[PUSH] Failed to send to device: %v", err)
+			slog.Warn("push: failed to send to device", "error", err, "user_id", userID)
 		}
 	}
 	return nil
@@ -78,7 +95,12 @@ func (s *LogPushService) SendToUser(ctx context.Context, userID, title, body str
 
 // GetUserTokens returns all device tokens for a user
 func (s *LogPushService) GetUserTokens(userID string) []DeviceToken {
-	return s.tokens[userID]
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]DeviceToken, len(s.tokens[userID]))
+	copy(result, s.tokens[userID])
+	return result
 }
 
 // FCMService template for Firebase Cloud Messaging

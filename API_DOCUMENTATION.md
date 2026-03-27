@@ -145,6 +145,44 @@ Authorization: Bearer <access_token>
 
 ---
 
+### Mobile-Native Social Login
+
+**Endpoint:** `POST /auth/google/token` or `POST /auth/apple/token`
+
+These endpoints verify native mobile ID tokens entirely on the backend and return standard app JWTs.
+
+**Request Body (Google):**
+```json
+{
+  "id_token": "eyJhbGciOiJSUz..."
+}
+```
+
+**Request Body (Apple):**
+```json
+{
+  "id_token": "eyJhbGciOiJSUz...",
+  "full_name": "Jane Doe" // NOTE: Apple only provides this on the very first sign-in
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "username": "google_user",
+    "email": "user@gmail.com"
+  },
+  "access_token": "eyJ...",
+  "refresh_token": "eyJ...",
+  "expires_in": 900,
+  "is_new_user": true
+}
+```
+
+---
+
 ### Refresh Token
 
 **Endpoint:** `POST /auth/refresh`
@@ -584,10 +622,11 @@ This endpoint uses **cursor-based pagination**.
 
 **Endpoint:** `POST /api/v1/posts`
 
+> 🔒 **Security Note:** The author is strictly inferred from the `Authorization: Bearer <token>` context. Do not send a `user_id` in the request body.
+
 **Request Body:**
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
-| user_id | UUID | Yes | Must exist |
 | content | string | Yes | - |
 | latitude | float | Yes | -90 to 90 |
 | longitude | float | Yes | -180 to 180 |
@@ -596,7 +635,6 @@ This endpoint uses **cursor-based pagination**.
 **Request Example:**
 ```json
 {
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
   "content": "Hello from Central Park!",
   "latitude": 40.785091,
   "longitude": -73.968285,

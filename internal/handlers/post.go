@@ -47,12 +47,10 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 			return
 		}
 
-		// Validate user exists
-		exists, err := userRepo.UserExists(c.Request.Context(), req.UserID)
-		if err != nil || !exists {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "User not found",
-			})
+		// Enforce that the post author is the authenticated user — never trust user_id from the request body
+		req.UserID = auth.GetUserID(c)
+		if req.UserID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 			return
 		}
 

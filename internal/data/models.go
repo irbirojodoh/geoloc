@@ -62,7 +62,7 @@ type Post struct {
 
 // CreatePostRequest represents the request body for creating a post
 type CreatePostRequest struct {
-	UserID    string   `json:"user_id" binding:"required"`
+	UserID    string   `json:"user_id"` // Set from auth context, not trusted from request body
 	Content   string   `json:"content" binding:"required"`
 	MediaURLs []string `json:"media_urls"` // Max 4 URLs
 	Latitude  float64  `json:"latitude" binding:"required"`

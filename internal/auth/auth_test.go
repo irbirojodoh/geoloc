@@ -25,7 +25,8 @@ func TestMain(m *testing.M) {
 func TestPasswordHashing(t *testing.T) {
 	password := "my-secret-password"
 
-	hash := HashPassword(password)
+	hash, err := HashPassword(password)
+	require.NoError(t, err)
 	assert.NotEmpty(t, hash)
 	assert.NotEqual(t, password, hash)
 
@@ -34,6 +35,10 @@ func TestPasswordHashing(t *testing.T) {
 
 	// Verify wrong password
 	assert.False(t, VerifyPassword("wrong-password", hash))
+
+	// Verify different hashes for same password (bcrypt random salt)
+	hash2, _ := HashPassword(password)
+	assert.NotEqual(t, hash, hash2, "bcrypt should produce different hashes (salts) for same password")
 }
 
 // 2. Test TokenType JSON Parsing (The fix you implemented)

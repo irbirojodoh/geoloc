@@ -166,10 +166,21 @@ func main() {
 	// ============== PUBLIC ROUTES ==============
 	router.POST("/auth/register", handlers.Register(userRepo))
 	router.POST("/auth/login", handlers.Login(userRepo))
+
+	// Mobile-native social login: Flutter app verifies natively and sends ID token here
+	router.POST("/auth/google/token", handlers.GoogleLogin(userRepo))
+	router.POST("/auth/apple/token", handlers.AppleLogin(userRepo))
+
+	// Web-based OAuth redirect flow (kept for browser/web compatibility)
 	router.GET("/auth/:provider/login", handlers.LoginOAuth())
 	router.GET("/auth/:provider/callback", handlers.CompleteOAuth(userRepo))
-	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo))
+	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo)) // Apple uses POST
 	router.POST("/auth/refresh", handlers.Refresh)
+
+	// Readiness probe (no dependency checks — server is up and accepting traffic)
+	router.GET("/ready", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
 
 	// ============== PROTECTED ROUTES ==============
 	api := router.Group("/api/v1")
@@ -269,6 +280,10 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatal("Server forced to shutdown:", err)
 	}
+
+	// Cleanup background resources
+	geoClient.Close()
+	slog.Info("Server shutdown complete")
 
 	log.Println("Server exiting")
 }

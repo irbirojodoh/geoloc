@@ -69,6 +69,11 @@ func NewNominatimClient(userAgent string) *NominatimClient {
 	}
 }
 
+// Close stops the rate limiter ticker. Call this during server shutdown.
+func (c *NominatimClient) Close() {
+	c.rateLimiter.Stop()
+}
+
 // ReverseGeocode converts coordinates to location info
 func (c *NominatimClient) ReverseGeocode(ctx context.Context, lat, lng float64) (*LocationInfo, error) {
 	// Rate limit - wait for ticker or ctx cancellation
