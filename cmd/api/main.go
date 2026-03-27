@@ -51,20 +51,21 @@ func main() {
 	// Initialize OAuth Providers
 	auth.InitOAuth()
 
-	// Cassandra connection
-	cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
-	cluster.Port = 9042
-	cluster.Keyspace = getEnv("CASSANDRA_KEYSPACE", "geoloc")
-	cluster.Consistency = gocql.Quorum
-	cluster.Timeout = 10 * time.Second
-	cluster.ConnectTimeout = 10 * time.Second
-	cluster.NumConns = 4 // Connection Pooling limit
-	cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
-
 	// Retry connection with backoff
 	var session *gocql.Session
 	var err error
 	for i := range 5 {
+		// Cassandra connection config must be recreated per attempt
+		// as gocql modifies the HostSelectionPolicy internally during CreateSession
+		cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
+		cluster.Port = 9042
+		cluster.Keyspace = getEnv("CASSANDRA_KEYSPACE", "geoloc")
+		cluster.Consistency = gocql.Quorum
+		cluster.Timeout = 10 * time.Second
+		cluster.ConnectTimeout = 10 * time.Second
+		cluster.NumConns = 4 // Connection Pooling limit
+		cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
+
 		session, err = cluster.CreateSession()
 		if err == nil {
 			break
