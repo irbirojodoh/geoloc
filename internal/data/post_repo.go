@@ -270,3 +270,73 @@ func (r *PostRepository) SearchPosts(ctx context.Context, query string, limit in
 	iter.Close()
 	return posts, nil
 }
+
+// DeletePost removes a post from all denormalized tables.
+// Verifies ownership: only the post author can delete their post.
+func (r *PostRepository) DeletePost(ctx context.Context, postIDStr, requestingUserID string) error {
+	postID, err := gocql.ParseUUID(postIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid post_id: %w", err)
+	}
+
+	// Fetch the post to get the data needed for multi-table deletion
+	var userID gocql.UUID
+	var latitude, longitude float64
+	var createdAt time.Time
+	var geohash string
+
+	err = r.session.Query(`
+		SELECT user_id, latitude, longitude, geohash, created_at
+		FROM posts_by_id WHERE post_id = ?
+	`, postID).WithContext(ctx).Scan(&userID, &latitude, &longitude, &geohash, &createdAt)
+
+	if err != nil {
+		if err == gocql.ErrNotFound {
+			return fmt.Errorf("post not found")
+		}
+		return fmt.Errorf("failed to fetch post: %w", err)
+	}
+
+	// Verify ownership
+	if userID.String() != requestingUserID {
+		return fmt.Errorf("forbidden: you can only delete your own posts")
+	}
+
+	// Calculate geohash prefix for posts_by_geohash deletion
+	geohashPrefix := GetGeohashPrefix(latitude, longitude)
+
+	// Batch delete from all denormalized tables
+	// Note: Counter tables (like_counts, comment_counts) cannot be part of a logged batch
+	batch := r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
+
+	// Delete from posts_by_id
+	batch.Query(`DELETE FROM posts_by_id WHERE post_id = ?`, postID)
+
+	// Delete from posts_by_geohash
+	batch.Query(`DELETE FROM posts_by_geohash WHERE geohash_prefix = ? AND created_at = ? AND post_id = ?`,
+		geohashPrefix, createdAt, postID)
+
+	// Delete from posts_by_user
+	batch.Query(`DELETE FROM posts_by_user WHERE user_id = ? AND created_at = ? AND post_id = ?`,
+		userID, createdAt, postID)
+
+	// Delete associated likes
+	batch.Query(`DELETE FROM likes WHERE target_type = ? AND target_id = ?`, TargetTypePost, postID)
+	batch.Query(`DELETE FROM like_state WHERE target_type = ? AND target_id = ?`, TargetTypePost, postID)
+
+	// Delete associated comments
+	batch.Query(`DELETE FROM comments WHERE post_id = ?`, postID)
+
+	err = r.session.ExecuteBatch(batch)
+	if err != nil {
+		return fmt.Errorf("failed to delete post: %w", err)
+	}
+
+	// Delete counter tables separately (cannot be in a logged batch)
+	_ = r.session.Query(`DELETE FROM like_counts WHERE target_type = ? AND target_id = ?`,
+		TargetTypePost, postID).WithContext(ctx).Exec()
+	_ = r.session.Query(`DELETE FROM comment_counts WHERE post_id = ?`,
+		postID).WithContext(ctx).Exec()
+
+	return nil
+}

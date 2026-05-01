@@ -18,7 +18,9 @@ type User struct {
 	CoverImageURL     string     `json:"cover_image_url,omitempty"`
 	PasswordHash      string     `json:"-"`
 	LastOnline        *time.Time `json:"last_online,omitempty"`
-	LastIPAddress     string     `json:"-"` // Don't expose in JSON
+	LastIPAddress     string     `json:"-"`          // Don't expose in JSON
+	IsDeleted         bool       `json:"-"`          // Soft-delete flag (hidden from JSON)
+	DeletedAt         *time.Time `json:"-"`          // Soft-delete timestamp (hidden from JSON)
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
@@ -112,17 +114,22 @@ type LikeRequest struct {
 
 // Comment represents a comment on a post or reply to another comment
 type Comment struct {
-	ID        string    `json:"id"`
-	PostID    string    `json:"post_id"`
-	ParentID  string    `json:"parent_id,omitempty"` // null for top-level
-	UserID    string    `json:"user_id"`
-	Content   string    `json:"content"`
-	Depth     int       `json:"depth"` // 1, 2, or 3
-	LikeCount int64     `json:"like_count"`
-	IPAddress string    `json:"-"`
-	UserAgent string    `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
-	Replies   []Comment `json:"replies,omitempty"` // Nested replies
+	ID                string     `json:"id"`
+	PostID            string     `json:"post_id"`
+	ParentID          string     `json:"parent_id,omitempty"` // null for top-level
+	UserID            string     `json:"user_id"`
+	Username          string     `json:"username,omitempty"`
+	ProfilePictureURL string     `json:"profile_picture_url,omitempty"`
+	Content           string     `json:"content"`
+	Depth             int        `json:"depth"` // 1, 2, or 3
+	LikeCount         int64      `json:"like_count"`
+	IsLiked           bool       `json:"is_liked"`
+	IPAddress         string     `json:"-"`
+	UserAgent         string     `json:"-"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         *time.Time `json:"updated_at,omitempty"`
+	IsDeleted         bool       `json:"-"`
+	Replies           []Comment  `json:"replies,omitempty"` // Nested replies
 }
 
 // CreateCommentRequest represents the request body for creating a comment

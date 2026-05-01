@@ -8,9 +8,10 @@
 - [Authentication](#authentication)
 - [Public Endpoints](#public-endpoints)
 - [Protected Endpoints](#protected-endpoints)
-  - [Profile](#profile)
+  - [Profile & Account](#profile--account)
   - [Users](#users)
   - [Follows](#follows)
+  - [Block / Mute](#block--mute)
   - [Posts](#posts)
   - [Likes](#likes)
   - [Comments](#comments)
@@ -19,6 +20,7 @@
   - [Search](#search)
   - [Upload](#upload)
   - [Devices](#devices)
+  - [Content Moderation](#content-moderation)
 - [Error Responses](#error-responses)
 - [Rate Limits](#rate-limits)
 
@@ -202,6 +204,63 @@ These endpoints verify native mobile ID tokens entirely on the backend and retur
   "expires_in": 900
 }
 ```
+
+---
+
+### Forgot Password
+
+**Endpoint:** `POST /auth/forgot-password`
+
+> Always returns 200 OK regardless of whether the email exists (prevents email enumeration).
+
+**Request Body:**
+```json
+{
+  "email": "john@example.com"
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "If an account with that email exists, a password reset link has been sent."
+}
+```
+
+> **Note (MVP):** The reset token is logged to server stdout. In production, integrate an email service.
+
+---
+
+### Reset Password
+
+**Endpoint:** `POST /auth/reset-password`
+
+**Request Body:**
+| Field | Type | Required | Constraints |
+|-------|------|----------|-------------|
+| token | string | Yes | 64-char hex token from reset email |
+| new_password | string | Yes | Min 6 chars, max 128 chars |
+
+**Request Example:**
+```json
+{
+  "token": "a1b2c3d4e5f6...",
+  "new_password": "mynewsecurepassword"
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Password has been reset successfully. Please log in with your new password."
+}
+```
+
+**Error Responses:**
+| Code | Scenario |
+|------|----------|
+| 400 | Invalid/expired/used token |
+| 400 | Password too short |
 
 ---
 
@@ -473,6 +532,32 @@ class FeedViewModel : ViewModel() {
 }
 ```
 
+#### Delete Account
+
+**Endpoint:** `DELETE /api/v1/users/me`
+
+> ⚠️ **Irreversible.** Requires password confirmation. Anonymizes all PII (GDPR-compliant).
+
+**Request Body:**
+```json
+{
+  "password": "currentpassword123"
+}
+```
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Your account has been deleted. All personal data has been anonymized."
+}
+```
+
+**Error Responses:**
+| Code | Scenario |
+|------|----------|
+| 400 | OAuth accounts (no password set) |
+| 403 | Incorrect password |
+
 ---
 
 ### Users
@@ -616,6 +701,81 @@ This endpoint uses **cursor-based pagination**.
 
 ---
 
+### Block / Mute
+
+#### Block User
+
+**Endpoint:** `POST /api/v1/users/:id/block`
+
+> Blocked users are hidden from each other's feeds and cannot interact.
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User blocked"
+}
+```
+
+#### Unblock User
+
+**Endpoint:** `DELETE /api/v1/users/:id/block`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User unblocked"
+}
+```
+
+#### Mute User
+
+**Endpoint:** `POST /api/v1/users/:id/mute`
+
+> Muted users' content is hidden from your feed, but they can still interact with you.
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User muted"
+}
+```
+
+#### Unmute User
+
+**Endpoint:** `DELETE /api/v1/users/:id/mute`
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "User unmuted"
+}
+```
+
+#### Get Blocked Users
+
+**Endpoint:** `GET /api/v1/users/me/blocked`
+
+**Success Response:** `200 OK`
+```json
+{
+  "blocked_users": ["user-uuid-1", "user-uuid-2"],
+  "count": 2
+}
+```
+
+#### Get Muted Users
+
+**Endpoint:** `GET /api/v1/users/me/muted`
+
+**Success Response:** `200 OK`
+```json
+{
+  "muted_users": ["user-uuid-1"],
+  "count": 1
+}
+
+---
+
 ### Posts
 
 #### Create Post
@@ -660,6 +820,25 @@ This endpoint uses **cursor-based pagination**.
   "post": { ... }
 }
 ```
+
+#### Delete Post
+
+**Endpoint:** `DELETE /api/v1/posts/:id`
+
+> Users can only delete their own posts. Cascades to all denormalized tables, likes, and comments.
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Post deleted successfully"
+}
+```
+
+**Error Responses:**
+| Code | Scenario |
+|------|----------|
+| 403 | Not the post owner |
+| 404 | Post not found |
 
 ---
 
@@ -1008,6 +1187,46 @@ This endpoint uses **cursor-based pagination**.
   "message": "Device unregistered"
 }
 ```
+
+---
+
+### Content Moderation
+
+#### Report Content
+
+**Endpoint:** `POST /api/v1/reports`
+
+**Request Body:**
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| target_type | string | Yes | `"post"`, `"comment"`, or `"user"` |
+| target_id | string | Yes | UUID of the target |
+| reason | string | Yes | `"spam"`, `"harassment"`, `"inappropriate"`, or `"other"` |
+| description | string | No | Additional details (max 1000 chars) |
+
+**Request Example:**
+```json
+{
+  "target_type": "post",
+  "target_id": "550e8400-e29b-41d4-a716-446655440000",
+  "reason": "spam",
+  "description": "This post is promoting a scam"
+}
+```
+
+**Success Response:** `201 Created`
+```json
+{
+  "message": "Report submitted successfully. Our team will review it."
+}
+```
+
+**Error Responses:**
+| Code | Scenario |
+|------|----------|
+| 400 | Invalid target_type or reason |
+| 400 | Trying to report yourself |
+| 409 | Duplicate report |
 
 ---
 

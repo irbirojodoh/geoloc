@@ -9,7 +9,7 @@ import (
 )
 
 func TestCommentRepository_Integration(t *testing.T) {
-	repo := NewCommentRepository(testSession)
+	repo := NewCommentRepository(testSession, nil)
 	postRepo := NewPostRepository(testSession)
 	userRepo := NewUserRepository(testSession)
 	ctx := context.Background()

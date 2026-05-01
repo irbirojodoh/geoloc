@@ -6,14 +6,17 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
+
+	"social-geo-go/internal/cache"
 )
 
 type CommentRepository struct {
-	session *gocql.Session
+	session        *gocql.Session
+	commentCounter *cache.CommentCounter
 }
 
-func NewCommentRepository(session *gocql.Session) *CommentRepository {
-	return &CommentRepository{session: session}
+func NewCommentRepository(session *gocql.Session, commentCounter *cache.CommentCounter) *CommentRepository {
+	return &CommentRepository{session: session, commentCounter: commentCounter}
 }
 
 // CreateComment creates a new comment on a post or reply to another comment
@@ -45,6 +48,10 @@ func (r *CommentRepository) CreateComment(ctx context.Context, req *CreateCommen
 			return nil, fmt.Errorf("parent comment not found: %w", err)
 		}
 
+		if parentComment.IsDeleted {
+			return nil, fmt.Errorf("cannot reply to a deleted comment")
+		}
+
 		depth = parentComment.Depth + 1
 		if depth > MaxCommentDepth {
 			return nil, fmt.Errorf("maximum comment depth of %d reached", MaxCommentDepth)
@@ -58,15 +65,15 @@ func (r *CommentRepository) CreateComment(ctx context.Context, req *CreateCommen
 
 	// Insert into comments table
 	batch.Query(`
-		INSERT INTO comments (post_id, comment_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, postID, commentID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now)
+		INSERT INTO comments (post_id, comment_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, postID, commentID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now, false)
 
 	// Insert into comments_by_id for direct lookups
 	batch.Query(`
-		INSERT INTO comments_by_id (comment_id, post_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, commentID, postID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now)
+		INSERT INTO comments_by_id (comment_id, post_id, parent_id, user_id, content, depth, ip_address, user_agent, created_at, is_deleted)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, commentID, postID, parentID, userID, req.Content, depth, req.IPAddress, req.UserAgent, now, false)
 
 	err = r.session.ExecuteBatch(batch)
 	if err != nil {
@@ -74,12 +81,27 @@ func (r *CommentRepository) CreateComment(ctx context.Context, req *CreateCommen
 	}
 
 	// Increment comment count for post
-	err = r.session.Query(`
-		UPDATE comment_counts SET count = count + 1
-		WHERE post_id = ?
-	`, postID).WithContext(ctx).Exec()
-	if err != nil {
-		fmt.Printf("Warning: failed to update comment count: %v\n", err)
+	if r.commentCounter != nil {
+		_, err = r.commentCounter.IncrementCommentCount(ctx, req.PostID)
+		if err != nil {
+			fmt.Printf("Warning: failed to increment Redis comment count: %v\n", err)
+			// fallback
+			err = r.session.Query(`
+                UPDATE comment_counts SET count = count + 1
+                WHERE post_id = ?
+            `, postID).WithContext(ctx).Exec()
+			if err != nil {
+				fmt.Printf("Warning: failed to update comment count: %v\n", err)
+			}
+		}
+	} else {
+		err = r.session.Query(`
+            UPDATE comment_counts SET count = count + 1
+            WHERE post_id = ?
+        `, postID).WithContext(ctx).Exec()
+		if err != nil {
+			fmt.Printf("Warning: failed to update comment count: %v\n", err)
+		}
 	}
 
 	parentIDStr := ""
@@ -95,7 +117,50 @@ func (r *CommentRepository) CreateComment(ctx context.Context, req *CreateCommen
 		Content:   req.Content,
 		Depth:     depth,
 		CreatedAt: now,
+		IsDeleted: false,
 	}, nil
+}
+
+// EditComment updates the content of an existing comment
+func (r *CommentRepository) EditComment(ctx context.Context, commentIDStr, userIDStr, content string) (*Comment, error) {
+	comment, err := r.GetCommentByID(ctx, commentIDStr)
+	if err != nil {
+		return nil, err
+	}
+
+	if comment.UserID != userIDStr {
+		return nil, fmt.Errorf("unauthorized: can only edit your own comments")
+	}
+
+	if comment.IsDeleted {
+		return nil, fmt.Errorf("cannot edit a deleted comment")
+	}
+
+	cid, _ := gocql.ParseUUID(commentIDStr)
+	pid, _ := gocql.ParseUUID(comment.PostID)
+	now := time.Now()
+
+	batch := r.session.NewBatch(gocql.LoggedBatch)
+	batch.WithContext(ctx)
+
+	// Update comments_by_id
+	batch.Query(`
+		UPDATE comments_by_id SET content = ?, updated_at = ? WHERE comment_id = ?
+	`, content, now, cid)
+
+	// Update comments
+	batch.Query(`
+		UPDATE comments SET content = ?, updated_at = ? WHERE post_id = ? AND created_at = ? AND comment_id = ?
+	`, content, now, pid, comment.CreatedAt, cid)
+
+	err = r.session.ExecuteBatch(batch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to edit comment: %w", err)
+	}
+
+	comment.Content = content
+	comment.UpdatedAt = &now
+	return comment, nil
 }
 
 // GetCommentByID retrieves a comment by its ID
@@ -107,13 +172,15 @@ func (r *CommentRepository) GetCommentByID(ctx context.Context, id string) (*Com
 
 	var comment Comment
 	var postID, parentID, userID gocql.UUID
+	var updatedAt time.Time
+	var isDeleted bool
 
 	err = r.session.Query(`
-		SELECT comment_id, post_id, parent_id, user_id, content, depth, created_at
+		SELECT comment_id, post_id, parent_id, user_id, content, depth, created_at, updated_at, is_deleted
 		FROM comments_by_id
 		WHERE comment_id = ?
 	`, commentID).WithContext(ctx).Scan(
-		&commentID, &postID, &parentID, &userID, &comment.Content, &comment.Depth, &comment.CreatedAt,
+		&commentID, &postID, &parentID, &userID, &comment.Content, &comment.Depth, &comment.CreatedAt, &updatedAt, &isDeleted,
 	)
 
 	if err != nil {
@@ -126,6 +193,10 @@ func (r *CommentRepository) GetCommentByID(ctx context.Context, id string) (*Com
 	comment.ID = commentID.String()
 	comment.PostID = postID.String()
 	comment.UserID = userID.String()
+	comment.IsDeleted = isDeleted
+	if !updatedAt.IsZero() {
+		comment.UpdatedAt = &updatedAt
+	}
 	if parentID.String() != "00000000-0000-0000-0000-000000000000" {
 		comment.ParentID = parentID.String()
 	}
@@ -133,31 +204,55 @@ func (r *CommentRepository) GetCommentByID(ctx context.Context, id string) (*Com
 	return &comment, nil
 }
 
-// GetCommentsForPost retrieves all comments for a post with nested structure
+// GetCommentsForPost retrieves all comments for a post with nested structure (legacy)
 func (r *CommentRepository) GetCommentsForPost(ctx context.Context, postID string, limit int) ([]Comment, error) {
+	comments, _, _, err := r.GetCommentsForPostPaginated(ctx, postID, limit, "")
+	return comments, err
+}
+
+// GetCommentsForPostPaginated retrieves top-level comments with cursor pagination
+func (r *CommentRepository) GetCommentsForPostPaginated(ctx context.Context, postID string, limit int, cursor string) ([]Comment, string, bool, error) {
 	pid, err := gocql.ParseUUID(postID)
 	if err != nil {
-		return nil, fmt.Errorf("invalid post_id: %w", err)
+		return nil, "", false, fmt.Errorf("invalid post_id: %w", err)
 	}
 
 	if limit <= 0 || limit > 100 {
-		limit = 50
+		limit = 20
 	}
 
-	iter := r.session.Query(`
-		SELECT comment_id, parent_id, user_id, content, depth, created_at
-		FROM comments
-		WHERE post_id = ?
-		LIMIT ?
-	`, pid, limit).WithContext(ctx).Iter()
+	cursorTime, err := DecodeCursor(cursor)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("invalid cursor: %w", err)
+	}
 
-	var allComments []Comment
+	// We fetch a bit more initially to account for some comments being replies
+	// In Cassandra, ALLOW FILTERING is generally OK within a single partition
+	var iter *gocql.Iter
+	fetchLimit := limit * 3
+
+	if cursorTime.IsZero() {
+		iter = r.session.Query(`
+			SELECT comment_id, parent_id, user_id, content, depth, created_at, updated_at, is_deleted
+			FROM comments
+			WHERE post_id = ? AND depth = 1 ALLOW FILTERING
+		`, pid).WithContext(ctx).PageSize(fetchLimit).Iter()
+	} else {
+		iter = r.session.Query(`
+			SELECT comment_id, parent_id, user_id, content, depth, created_at, updated_at, is_deleted
+			FROM comments
+			WHERE post_id = ? AND created_at < ? AND depth = 1 ALLOW FILTERING
+		`, pid, cursorTime).WithContext(ctx).PageSize(fetchLimit).Iter()
+	}
+
+	var roots []Comment
 	var commentID, parentID, userID gocql.UUID
 	var content string
 	var depth int
-	var createdAt time.Time
+	var createdAt, updatedAt time.Time
+	var isDeleted bool
 
-	for iter.Scan(&commentID, &parentID, &userID, &content, &depth, &createdAt) {
+	for iter.Scan(&commentID, &parentID, &userID, &content, &depth, &createdAt, &updatedAt, &isDeleted) {
 		c := Comment{
 			ID:        commentID.String(),
 			PostID:    postID,
@@ -165,46 +260,130 @@ func (r *CommentRepository) GetCommentsForPost(ctx context.Context, postID strin
 			Content:   content,
 			Depth:     depth,
 			CreatedAt: createdAt,
+			IsDeleted: isDeleted,
 		}
-		if parentID.String() != "00000000-0000-0000-0000-000000000000" {
-			c.ParentID = parentID.String()
+		if !updatedAt.IsZero() {
+			c.UpdatedAt = &updatedAt
 		}
-		allComments = append(allComments, c)
+		roots = append(roots, c)
+
+		if len(roots) >= limit+1 {
+			break
+		}
 	}
 
 	if err := iter.Close(); err != nil {
-		return nil, fmt.Errorf("failed to get comments: %w", err)
+		return nil, "", false, fmt.Errorf("failed to get paginated comments: %w", err)
 	}
 
-	// Build nested structure
-	return buildNestedComments(allComments), nil
+	hasMore := len(roots) > limit
+	if hasMore {
+		roots = roots[:limit]
+	}
+
+	var nextCursor string
+	if hasMore && len(roots) > 0 {
+		nextCursor = EncodeCursor(roots[len(roots)-1].CreatedAt)
+	}
+
+	// Fetch replies for each root
+	for i := range roots {
+		replies, _, _, _ := r.GetRepliesForComment(ctx, roots[i].ID, 3, "")
+		roots[i].Replies = replies
+	}
+
+	return roots, nextCursor, hasMore, nil
 }
 
-// buildNestedComments organizes flat comments into nested structure
-func buildNestedComments(comments []Comment) []Comment {
-	commentMap := make(map[string]*Comment)
-	var roots []Comment
-
-	// First pass: create map
-	for i := range comments {
-		commentMap[comments[i].ID] = &comments[i]
+// GetRepliesForComment retrieves replies for a comment
+func (r *CommentRepository) GetRepliesForComment(ctx context.Context, parentIDStr string, limit int, cursor string) ([]Comment, string, bool, error) {
+	parentComment, err := r.GetCommentByID(ctx, parentIDStr)
+	if err != nil {
+		return nil, "", false, err
 	}
 
-	// Second pass: build tree
-	for i := range comments {
-		if comments[i].ParentID == "" {
-			roots = append(roots, comments[i])
-		} else {
-			if parent, ok := commentMap[comments[i].ParentID]; ok {
-				parent.Replies = append(parent.Replies, comments[i])
-			}
+	pid, _ := gocql.ParseUUID(parentComment.PostID)
+	parentID, _ := gocql.ParseUUID(parentIDStr)
+
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+
+	cursorTime, err := DecodeCursor(cursor)
+	if err != nil {
+		return nil, "", false, fmt.Errorf("invalid cursor: %w", err)
+	}
+
+	var iter *gocql.Iter
+
+	if cursorTime.IsZero() {
+		iter = r.session.Query(`
+			SELECT comment_id, user_id, content, depth, created_at, updated_at, is_deleted
+			FROM comments
+			WHERE post_id = ? AND parent_id = ? ALLOW FILTERING
+		`, pid, parentID).WithContext(ctx).PageSize(limit + 1).Iter()
+	} else {
+		iter = r.session.Query(`
+			SELECT comment_id, user_id, content, depth, created_at, updated_at, is_deleted
+			FROM comments
+			WHERE post_id = ? AND parent_id = ? AND created_at < ? ALLOW FILTERING
+		`, pid, parentID, cursorTime).WithContext(ctx).PageSize(limit + 1).Iter()
+	}
+
+	var replies []Comment
+	var commentID, userID gocql.UUID
+	var content string
+	var depth int
+	var createdAt, updatedAt time.Time
+	var isDeleted bool
+
+	for iter.Scan(&commentID, &userID, &content, &depth, &createdAt, &updatedAt, &isDeleted) {
+		c := Comment{
+			ID:        commentID.String(),
+			PostID:    parentComment.PostID,
+			ParentID:  parentIDStr,
+			UserID:    userID.String(),
+			Content:   content,
+			Depth:     depth,
+			CreatedAt: createdAt,
+			IsDeleted: isDeleted,
+		}
+		if !updatedAt.IsZero() {
+			c.UpdatedAt = &updatedAt
+		}
+		replies = append(replies, c)
+
+		if len(replies) >= limit+1 {
+			break
 		}
 	}
 
-	return roots
+	if err := iter.Close(); err != nil {
+		return nil, "", false, fmt.Errorf("failed to get replies: %w", err)
+	}
+
+	// Sort replies ASCending order (oldest first)
+	// Actually we need to check if we should reverse. The query returns DESC.
+	for i, j := 0, len(replies)-1; i < j; i, j = i+1, j-1 {
+		replies[i], replies[j] = replies[j], replies[i]
+	}
+
+	hasMore := len(replies) > limit
+	if hasMore {
+		// since we reversed it, the element to chop is at index 0
+		replies = replies[1:]
+	}
+
+	var nextCursor string
+	if hasMore && len(replies) > 0 {
+		// We reversed it, the oldest is at index 0.
+		nextCursor = EncodeCursor(replies[0].CreatedAt)
+	}
+
+	return replies, nextCursor, hasMore, nil
 }
 
-// DeleteComment deletes a comment by its ID
+// DeleteComment soft-deletes a comment by its ID
 func (r *CommentRepository) DeleteComment(ctx context.Context, commentID, userID string) error {
 	comment, err := r.GetCommentByID(ctx, commentID)
 	if err != nil {
@@ -222,27 +401,19 @@ func (r *CommentRepository) DeleteComment(ctx context.Context, commentID, userID
 	batch := r.session.NewBatch(gocql.LoggedBatch)
 	batch.WithContext(ctx)
 
-	// Delete from comments_by_id
+	// Soft Delete from comments_by_id
 	batch.Query(`
-		DELETE FROM comments_by_id WHERE comment_id = ?
+		UPDATE comments_by_id SET content = '[deleted]', is_deleted = true WHERE comment_id = ?
 	`, cid)
 
-	// Delete from comments (need created_at for deletion)
+	// Soft Delete from comments
 	batch.Query(`
-		DELETE FROM comments WHERE post_id = ? AND created_at = ? AND comment_id = ?
+		UPDATE comments SET content = '[deleted]', is_deleted = true WHERE post_id = ? AND created_at = ? AND comment_id = ?
 	`, pid, comment.CreatedAt, cid)
 
 	err = r.session.ExecuteBatch(batch)
 	if err != nil {
-		return fmt.Errorf("ERROR: failed to delete comment: %w", err)
-	}
-
-	// Decrement comment count
-	err = r.session.Query(`
-		UPDATE comment_counts SET count = count - 1 WHERE post_id = ?
-	`, pid).WithContext(ctx).Exec()
-	if err != nil {
-		fmt.Printf("Warning failed to decrement comment_counts: %v", err)
+		return fmt.Errorf("ERROR: failed to soft-delete comment: %w", err)
 	}
 
 	return nil
@@ -250,6 +421,13 @@ func (r *CommentRepository) DeleteComment(ctx context.Context, commentID, userID
 
 // GetCommentCount returns the comment count for a post
 func (r *CommentRepository) GetCommentCount(ctx context.Context, postID string) (int64, error) {
+	if r.commentCounter != nil {
+		count, err := r.commentCounter.GetCommentCount(ctx, postID)
+		if err == nil && count > 0 {
+			return count, nil
+		}
+	}
+
 	pid, err := gocql.ParseUUID(postID)
 	if err != nil {
 		return 0, fmt.Errorf("invalid post_id: %w", err)

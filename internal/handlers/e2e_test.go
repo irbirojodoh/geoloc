@@ -31,7 +31,7 @@ func setupE2ERouter() *gin.Engine {
 	// Repositories
 	userRepo := data.NewUserRepository(testSession)
 	postRepo := data.NewPostRepository(testSession)
-	commentRepo := data.NewCommentRepository(testSession)
+	commentRepo := data.NewCommentRepository(testSession, nil)
 	followRepo := data.NewFollowRepository(testSession)
 	likeRepo := data.NewLikeRepository(testSession, nil) // nil redis for tests
 	notifRepo := data.NewNotificationRepository(testSession)
@@ -39,22 +39,27 @@ func setupE2ERouter() *gin.Engine {
 	locFollowRepo := data.NewLocationFollowRepository(testSession)
 	store := storage.NewLocalStorage("/tmp/test-uploads", "http://localhost:8080/uploads")
 	pushService := push.NewLogPushService()
+	resetRepo := data.NewPasswordResetRepository(testSession)
+	modRepo := data.NewModerationRepository(testSession)
 
 	// Public routes
 	r.POST("/auth/register", Register(userRepo))
 	r.POST("/auth/login", Login(userRepo))
 	r.POST("/auth/refresh", Refresh)
+	r.POST("/auth/forgot-password", ForgotPassword(userRepo, resetRepo))
+	r.POST("/auth/reset-password", ResetPassword(userRepo, resetRepo))
 
 	// Protected routes
 	api := r.Group("/api/v1")
 	api.Use(auth.AuthRequired())
 	{
 		// Feed
-		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo, modRepo))
 
 		// Profile
 		api.GET("/users/me", GetCurrentUser(userRepo))
 		api.PUT("/users/me", UpdateProfile(userRepo))
+		api.DELETE("/users/me", DeleteAccount(userRepo))
 
 		// Users
 		api.GET("/users/:id", GetUser(userRepo))
@@ -67,24 +72,33 @@ func setupE2ERouter() *gin.Engine {
 		api.GET("/users/:id/followers", GetFollowers(followRepo))
 		api.GET("/users/:id/following", GetFollowing(followRepo))
 
+		// Block/Mute
+		api.POST("/users/:id/block", BlockUser(modRepo))
+		api.DELETE("/users/:id/block", UnblockUser(modRepo))
+		api.POST("/users/:id/mute", MuteUser(modRepo))
+		api.DELETE("/users/:id/mute", UnmuteUser(modRepo))
+		api.GET("/users/me/blocked", GetBlockedUsers(modRepo))
+		api.GET("/users/me/muted", GetMutedUsers(modRepo))
+
 		// Posts
 		api.POST("/posts", CreatePost(postRepo, userRepo))
 		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo))
+		api.DELETE("/posts/:id", DeletePost(postRepo))
 
 		// data.Post likes
 		api.POST("/posts/:id/like", LikePost(likeRepo))
 		api.DELETE("/posts/:id/like", UnlikePost(likeRepo))
-		api.POST("/posts/:id/toggle-like", TogglePostLike(likeRepo))
+		api.POST("/posts/:id/toggle-like", TogglePostLike(likeRepo, postRepo, notifRepo))
 
 		// Comments
-		api.POST("/posts/:id/comments", CreateComment(commentRepo))
-		api.GET("/posts/:id/comments", GetComments(commentRepo))
+		api.POST("/posts/:id/comments", CreateComment(commentRepo, postRepo, notifRepo))
+		api.GET("/posts/:id/comments", GetComments(commentRepo, userRepo, likeRepo))
 
 		// data.Comment actions
-		api.POST("/comments/:id/reply", ReplyToComment(commentRepo))
+		api.POST("/comments/:id/reply", ReplyToComment(commentRepo, notifRepo))
 		api.POST("/comments/:id/like", LikeComment(likeRepo))
 		api.DELETE("/comments/:id/like", UnlikeComment(likeRepo))
-		api.POST("/comments/:id/toggle-like", ToggleCommentLike(likeRepo))
+		api.POST("/comments/:id/toggle-like", ToggleCommentLike(likeRepo, commentRepo, notifRepo))
 		api.DELETE("/comments/:id", DeleteComment(commentRepo))
 
 		// Search
@@ -107,6 +121,9 @@ func setupE2ERouter() *gin.Engine {
 		// Device
 		api.POST("/devices", RegisterDevice(pushService))
 		api.DELETE("/devices", UnregisterDevice(pushService))
+
+		// Reports
+		api.POST("/reports", CreateReport(modRepo))
 	}
 
 	return r

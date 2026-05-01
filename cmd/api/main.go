@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -58,7 +59,15 @@ func main() {
 		// Cassandra connection config must be recreated per attempt
 		// as gocql modifies the HostSelectionPolicy internally during CreateSession
 		cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
-		cluster.Port = 9042
+		
+		// Parse port from env or default to 9042
+		portStr := getEnv("CASSANDRA_PORT", "9042")
+		port, errPort := strconv.Atoi(portStr)
+		if errPort != nil {
+			log.Fatalf("Invalid CASSANDRA_PORT: %s", portStr)
+		}
+		cluster.Port = port
+		
 		cluster.Keyspace = getEnv("CASSANDRA_KEYSPACE", "geoloc")
 		cluster.Consistency = gocql.Quorum
 		cluster.Timeout = 10 * time.Second
@@ -81,14 +90,16 @@ func main() {
 
 	// Initialize Redis connection
 	var likeCounter *cache.LikeCounter
+	var commentCounter *cache.CommentCounter
 	redisClient, err := cache.NewRedisClient()
 	if err != nil {
 		log.Printf("WARNING: Failed to connect to Redis: %v", err)
-		log.Println("Like counters will use Cassandra fallback (slower)")
+		log.Println("Like/Comment counters will use Cassandra fallback (slower)")
 	} else {
 		defer redisClient.Close()
 		log.Println("Successfully connected to Redis")
 		likeCounter = cache.NewLikeCounter(redisClient)
+		commentCounter = cache.NewCommentCounter(redisClient)
 	}
 
 	// Initialize storage
@@ -106,11 +117,13 @@ func main() {
 	postRepo := data.NewPostRepository(session)
 	userRepo := data.NewUserRepository(session)
 	likeRepo := data.NewLikeRepository(session, likeCounter)
-	commentRepo := data.NewCommentRepository(session)
+	commentRepo := data.NewCommentRepository(session, commentCounter)
 	followRepo := data.NewFollowRepository(session)
 	locFollowRepo := data.NewLocationFollowRepository(session)
 	notifRepo := data.NewNotificationRepository(session)
 	locRepo := data.NewLocationRepository(session, geoClient)
+	resetRepo := data.NewPasswordResetRepository(session)
+	modRepo := data.NewModerationRepository(session)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -178,6 +191,10 @@ func main() {
 	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo)) // Apple uses POST
 	router.POST("/auth/refresh", handlers.Refresh)
 
+	// Password reset (public)
+	router.POST("/auth/forgot-password", handlers.ForgotPassword(userRepo, resetRepo))
+	router.POST("/auth/reset-password", handlers.ResetPassword(userRepo, resetRepo))
+
 	// Readiness probe (no dependency checks — server is up and accepting traffic)
 	router.GET("/ready", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
@@ -187,8 +204,8 @@ func main() {
 	api := router.Group("/api/v1")
 	api.Use(auth.AuthRequired())
 	{
-		// Feed (now protected)
-		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo))
+		// Feed (now protected — filters blocked/muted users)
+		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo, modRepo))
 
 		// Geocode
 		api.GET("/geocode/address", handlers.GetAddress(locRepo))
@@ -196,11 +213,13 @@ func main() {
 		// Profile
 		api.GET("/users/me", handlers.GetCurrentUser(userRepo))
 		api.PUT("/users/me", handlers.UpdateProfile(userRepo))
+		api.DELETE("/users/me", handlers.DeleteAccount(userRepo))
 
 		// User routes
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
 		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/users/:id/liked-posts", handlers.GetLikedPosts(likeRepo, postRepo, userRepo, locRepo))
 
 		// Follow routes
 		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifRepo))
@@ -208,25 +227,36 @@ func main() {
 		api.GET("/users/:id/followers", handlers.GetFollowers(followRepo))
 		api.GET("/users/:id/following", handlers.GetFollowing(followRepo))
 
+		// Block/Mute routes
+		api.POST("/users/:id/block", handlers.BlockUser(modRepo))
+		api.DELETE("/users/:id/block", handlers.UnblockUser(modRepo))
+		api.POST("/users/:id/mute", handlers.MuteUser(modRepo))
+		api.DELETE("/users/:id/mute", handlers.UnmuteUser(modRepo))
+		api.GET("/users/me/blocked", handlers.GetBlockedUsers(modRepo))
+		api.GET("/users/me/muted", handlers.GetMutedUsers(modRepo))
+
 		// Post routes
 		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
 		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
+		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 
 		// Post likes (legacy + new idempotent toggle)
 		api.POST("/posts/:id/like", handlers.LikePost(likeRepo))
 		api.DELETE("/posts/:id/like", handlers.UnlikePost(likeRepo))
-		api.POST("/posts/:id/toggle-like", handlers.TogglePostLike(likeRepo))
+		api.POST("/posts/:id/toggle-like", handlers.TogglePostLike(likeRepo, postRepo, notifRepo))
 
 		// Post comments
-		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo))
-		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo))
+		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo, postRepo, notifRepo))
+		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo, userRepo, likeRepo))
 
 		// Comment routes
-		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo))
+		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo, notifRepo))
+		api.GET("/comments/:id/replies", handlers.GetReplies(commentRepo, userRepo, likeRepo))
+		api.PUT("/comments/:id", handlers.EditComment(commentRepo))
+		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
 		api.POST("/comments/:id/like", handlers.LikeComment(likeRepo))
 		api.DELETE("/comments/:id/like", handlers.UnlikeComment(likeRepo))
-		api.POST("/comments/:id/toggle-like", handlers.ToggleCommentLike(likeRepo))
-		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
+		api.POST("/comments/:id/toggle-like", handlers.ToggleCommentLike(likeRepo, commentRepo, notifRepo))
 
 		// Location follow routes
 		api.POST("/locations/follow", handlers.FollowLocation(locFollowRepo))
@@ -249,6 +279,9 @@ func main() {
 		// Device registration (push notifications)
 		api.POST("/devices", handlers.RegisterDevice(pushService))
 		api.DELETE("/devices", handlers.UnregisterDevice(pushService))
+
+		// Content moderation
+		api.POST("/reports", handlers.CreateReport(modRepo))
 	}
 
 	// Start server

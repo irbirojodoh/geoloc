@@ -1,112 +1,145 @@
-version: "3.8"
-
 services:
-  # NODE 1: The Seed Node (Main entry point)
   cassandra-1:
     image: cassandra:4.1
-    container_name: cassandra-1
+    container_name: geoloc-cassandra-1
     environment:
-      - CASSANDRA_CLUSTER_NAME=geoloc
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      # It points to itself as the seed
-      - CASSANDRA_SEEDS=cassandra-1
-      # LIMIT MEMORY!
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      CASSANDRA_CLUSTER_NAME: geoloc
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
     ports:
-      - "9042:9042" # Expose standard port for your App & cqlsh
+      - "9042:9042"
     volumes:
       - cassandra_data_1:/var/lib/cassandra
     healthcheck:
-      test: [ "CMD-SHELL", "cqlsh -u cassandra -p cassandra -e 'describe cluster'" ]
-      interval: 30s
+      test: ["CMD-SHELL", "cqlsh -e 'DESCRIBE KEYSPACES'"]
+      interval: 20s
       timeout: 10s
-      retries: 5
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
 
-  # NODE 2: Peer
   cassandra-2:
     image: cassandra:4.1
-    container_name: cassandra-2
+    container_name: geoloc-cassandra-2
     environment:
-      - CASSANDRA_CLUSTER_NAME=geoloc
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      # Points to Node 1 to join the cluster
-      - CASSANDRA_SEEDS=cassandra-1
-      # LIMIT MEMORY!
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
-
-    # We DO NOT expose ports here to the host to avoid conflicts.
-    # Docker internal network handles communication.
+      CASSANDRA_CLUSTER_NAME: geoloc
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
     depends_on:
       cassandra-1:
         condition: service_healthy
     volumes:
       - cassandra_data_2:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh cassandra-1 -e 'DESCRIBE CLUSTER'"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
 
-  # NODE 3: Peer
   cassandra-3:
     image: cassandra:4.1
-    container_name: cassandra-3
+    container_name: geoloc-cassandra-3
     environment:
-      - CASSANDRA_CLUSTER_NAME=geoloc
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
-      - CASSANDRA_SEEDS=cassandra-1
-      # LIMIT MEMORY!
-      - MAX_HEAP_SIZE=512M
-      - HEAP_NEWSIZE=100M
+      CASSANDRA_CLUSTER_NAME: geoloc
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      CASSANDRA_SEEDS: cassandra-1
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 100M
     depends_on:
       cassandra-1:
         condition: service_healthy
     volumes:
       - cassandra_data_3:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh cassandra-1 -e 'DESCRIBE CLUSTER'"]
+      interval: 20s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
 
-  # INIT CONTAINER (Connects to Node 1)
   cassandra-db-init:
     image: cassandra:4.1
+    container_name: geoloc-cassandra-init
     depends_on:
       cassandra-1:
         condition: service_healthy
+      cassandra-2:
+        condition: service_healthy
+      cassandra-3:
+        condition: service_healthy
     volumes:
-      - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql
-      - ./migrations/mock_data.cql:/schema/mock_data.cql
-    entrypoint: [ "sh", "-c" ]
-    # Note: We connect to 'cassandra-1' specifically
-    command: |
-      "echo 'Applying Schema...' &&
-       cqlsh cassandra-1 -f /schema/cassandra_schema.cql &&
-       echo 'Seeding Mock Data...' &&
-       cqlsh cassandra-1 -f /schema/mock_data.cql &&
-       echo 'Database Initialized!'"
+      - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql:ro
+      - ./migrations/mock_data.cql:/schema/mock_data.cql:ro
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        echo "Waiting for Cassandra coordinator..."
+        until cqlsh cassandra-1 -e "DESCRIBE CLUSTER"; do sleep 5; done
+        echo "Applying Cassandra schema..."
+        cqlsh cassandra-1 -f /schema/cassandra_schema.cql
+        echo "Applying optional mock data (idempotent)..."
+        cqlsh cassandra-1 -f /schema/mock_data.cql || true
+        echo "Cassandra initialization complete."
+    profiles:
+      - dev
+      - app
 
   redis:
-    image: redis:alpine
-    container_name: geoloc_redis
+    image: redis:7-alpine
+    container_name: geoloc-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
-      retries: 5
-  # ============== GEOLOC API ==============
+      retries: 10
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: geoloc-api
-    ports:
-      - "8080:8080"
     env_file:
       - .env
     environment:
-      - CASSANDRA_HOST=cassandra-1
-      - REDIS_HOST=redis
+      APP_ENV: development
+      CASSANDRA_HOST: cassandra-1
+      CASSANDRA_PORT: 9042
+      CASSANDRA_KEYSPACE: geoloc
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 8080
+      BASE_URL: http://localhost:8080
+      UPLOAD_PATH: /app/uploads
+    ports:
+      - "8080:8080"
     depends_on:
       cassandra-db-init:
         condition: service_completed_successfully
@@ -114,27 +147,32 @@ services:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
-    restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health" ]
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1:8080/ready || exit 1"]
       interval: 15s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    profiles:
+      - app
 
-  # ============== TLS REVERSE PROXY ==============
   caddy:
     image: caddy:2-alpine
     container_name: geoloc-caddy
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
-    depends_on:
-      api:
-        condition: service_healthy
+      - caddy_config:/config
     restart: unless-stopped
+    profiles:
+      - with-proxy
 
 volumes:
   cassandra_data_1:
@@ -142,3 +180,4 @@ volumes:
   cassandra_data_3:
   redis_data:
   caddy_data:
+  caddy_config:

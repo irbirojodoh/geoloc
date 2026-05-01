@@ -74,7 +74,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 }
 
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, modRepo *data.ModerationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
@@ -112,13 +112,25 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 		// Apply default limit
 		limit := data.GetDefaultLimit(req.Limit, 20, 100)
 
-		// Fetch one extra to determine if there are more posts
+		// Get current user's blocked/muted list for feed filtering
+		currentUserID := auth.GetUserID(c)
+		var excludedUsers map[string]bool
+		if modRepo != nil && currentUserID != "" {
+			excludedUsers, _ = modRepo.GetBlockedAndMutedUsers(c.Request.Context(), currentUserID)
+		}
+
+		// Fetch extra to account for filtered posts + pagination
+		fetchLimit := limit + 1
+		if len(excludedUsers) > 0 {
+			fetchLimit = limit*2 + 1 // Fetch more if we expect to filter some out
+		}
+
 		posts, err := repo.GetNearbyPosts(
 			c.Request.Context(),
 			req.Latitude,
 			req.Longitude,
 			req.RadiusKM,
-			limit+1,
+			fetchLimit,
 			cursorTime,
 		)
 		if err != nil {
@@ -126,6 +138,17 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 				"error":   "Failed to fetch feed",
 			})
 			return
+		}
+
+		// Filter out posts from blocked/muted users
+		if len(excludedUsers) > 0 {
+			var filtered []data.Post
+			for _, p := range posts {
+				if !excludedUsers[p.UserID] {
+					filtered = append(filtered, p)
+				}
+			}
+			posts = filtered
 		}
 
 		// Determine if there are more posts
@@ -140,8 +163,8 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		// Get current user ID for like status
-		currentUserID := auth.GetUserID(c)
+		// Get current user ID for like status (already set above for block/mute filtering)
+		currentUserID = auth.GetUserID(c)
 
 		// Enrich posts with user info and location info
 		if len(posts) > 0 {
@@ -386,5 +409,35 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 			"has_more":    hasMore,
 			"next_cursor": nextCursor,
 		})
+	}
+}
+
+// DeletePost handles DELETE /api/v1/posts/:id
+func DeletePost(postRepo *data.PostRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		postID := c.Param("id")
+		userID := auth.GetUserID(c)
+
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		err := postRepo.DeletePost(c.Request.Context(), postID, userID)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Post not found"})
+				return
+			}
+			if strings.Contains(err.Error(), "forbidden") {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You can only delete your own posts"})
+				return
+			}
+			slog.Error("Failed to delete post", "error", err, "post_id", postID, "user_id", userID)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete post"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Post deleted successfully"})
 	}
 }

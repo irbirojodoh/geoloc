@@ -86,6 +86,8 @@ func (r *LikeRepository) tryAddLike(ctx context.Context, targetType string, targ
 		if err != nil {
 			// Log but don't fail - state change succeeded
 			fmt.Printf("WARNING: failed to increment Redis counter: %v\n", err)
+			// Schedule async counter sync
+			go r.SyncCounterFromCassandra(context.Background(), targetType, targetID.String())
 			// Fall back to getting estimate
 			count, _ = r.getLikeCountFallback(ctx, targetType, targetID.String())
 		}
@@ -99,6 +101,7 @@ func (r *LikeRepository) tryAddLike(ctx context.Context, targetType string, targ
 	// Also maintain the legacy likes table for backward compatibility
 	if applied {
 		go r.insertLegacyLike(context.Background(), targetType, targetID, userID, now)
+		go r.insertLikeByUser(context.Background(), targetType, targetID, userID, now)
 	}
 
 	return result, nil
@@ -156,6 +159,7 @@ func (r *LikeRepository) tryRemoveLike(ctx context.Context, targetType string, t
 		count, err := r.likeCounter.DecrementLikeCount(ctx, targetType, targetID.String())
 		if err != nil {
 			fmt.Printf("WARNING: failed to decrement Redis counter: %v\n", err)
+			go r.SyncCounterFromCassandra(context.Background(), targetType, targetID.String())
 			count, _ = r.getLikeCountFallback(ctx, targetType, targetID.String())
 		}
 		result.LikeCount = count
@@ -167,6 +171,7 @@ func (r *LikeRepository) tryRemoveLike(ctx context.Context, targetType string, t
 	// Also delete from legacy likes table
 	if applied {
 		go r.deleteLegacyLike(context.Background(), targetType, targetID, userID)
+		go r.deleteLikeByUser(context.Background(), targetType, targetID, userID)
 	}
 
 	return result, nil
@@ -191,6 +196,27 @@ func (r *LikeRepository) deleteLegacyLike(ctx context.Context, targetType string
 	_ = r.session.Query(`
 		DELETE FROM likes WHERE target_type = ? AND target_id = ? AND user_id = ?
 	`, targetType, targetID, userID).WithContext(ctx).Exec()
+}
+
+// insertLikeByUser adds to the likes_by_user table
+func (r *LikeRepository) insertLikeByUser(ctx context.Context, targetType string, targetID, userID gocql.UUID, createdAt time.Time) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	_ = r.session.Query(`
+		INSERT INTO likes_by_user (user_id, target_type, target_id, created_at)
+		VALUES (?, ?, ?, ?)
+	`, userID, targetType, targetID, createdAt).WithContext(ctx).Exec()
+}
+
+// deleteLikeByUser removes from the likes_by_user table
+func (r *LikeRepository) deleteLikeByUser(ctx context.Context, targetType string, targetID, userID gocql.UUID) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	_ = r.session.Query(`
+		DELETE FROM likes_by_user WHERE user_id = ? AND target_type = ? AND target_id = ?
+	`, userID, targetType, targetID).WithContext(ctx).Exec()
 }
 
 // getLikeCountFallback counts likes from Cassandra when Redis is unavailable
@@ -282,10 +308,34 @@ func (r *LikeRepository) GetLikesForPosts(ctx context.Context, postIDs []string,
 		counts = make(map[string]int64)
 	}
 
-	// Check each post's like status
+	// Concurrent checking of user likes to avoid N+1 latency
+	type likeResult struct {
+		targetID string
+		liked    bool
+	}
+	likeChan := make(chan likeResult, len(postIDs))
+
+	for _, postID := range postIDs {
+		go func(pid string) {
+			liked := false
+			if userID != "" {
+				liked, _ = r.HasUserLiked(ctx, TargetTypePost, pid, userID)
+			}
+			likeChan <- likeResult{pid, liked}
+		}(postID)
+	}
+
+	userLikes := make(map[string]bool)
+	for i := 0; i < len(postIDs); i++ {
+		res := <-likeChan
+		userLikes[res.targetID] = res.liked
+	}
+
+	// Build result
 	for _, postID := range postIDs {
 		info := PostLikeInfo{
 			LikeCount: counts[postID],
+			IsLiked:   userLikes[postID],
 		}
 
 		// If Redis count is 0, try Cassandra fallback
@@ -294,13 +344,75 @@ func (r *LikeRepository) GetLikesForPosts(ctx context.Context, postIDs []string,
 			info.LikeCount = count
 		}
 
-		// Check if user has liked
-		if userID != "" {
-			liked, _ := r.HasUserLiked(ctx, TargetTypePost, postID, userID)
-			info.IsLiked = liked
+		result[postID] = info
+	}
+
+	return result, nil
+}
+
+// CommentLikeInfo contains like information for a comment
+type CommentLikeInfo struct {
+	LikeCount int64
+	IsLiked   bool
+}
+
+// GetLikesForComments returns like counts and user like status for multiple comments
+func (r *LikeRepository) GetLikesForComments(ctx context.Context, commentIDs []string, userID string) (map[string]CommentLikeInfo, error) {
+	result := make(map[string]CommentLikeInfo)
+
+	if len(commentIDs) == 0 {
+		return result, nil
+	}
+
+	// Batch get counts from Redis
+	var counts map[string]int64
+	if r.likeCounter != nil {
+		var err error
+		counts, err = r.likeCounter.GetLikeCountsBatch(ctx, TargetTypeComment, commentIDs)
+		if err != nil {
+			fmt.Printf("WARNING: Redis batch get failed: %v\n", err)
+			counts = make(map[string]int64)
+		}
+	} else {
+		counts = make(map[string]int64)
+	}
+
+	// Concurrent checking of user likes
+	type likeResult struct {
+		targetID string
+		liked    bool
+	}
+	likeChan := make(chan likeResult, len(commentIDs))
+
+	for _, commentID := range commentIDs {
+		go func(cid string) {
+			liked := false
+			if userID != "" {
+				liked, _ = r.HasUserLiked(ctx, TargetTypeComment, cid, userID)
+			}
+			likeChan <- likeResult{cid, liked}
+		}(commentID)
+	}
+
+	userLikes := make(map[string]bool)
+	for i := 0; i < len(commentIDs); i++ {
+		res := <-likeChan
+		userLikes[res.targetID] = res.liked
+	}
+
+	// Build result
+	for _, commentID := range commentIDs {
+		info := CommentLikeInfo{
+			LikeCount: counts[commentID],
+			IsLiked:   userLikes[commentID],
 		}
 
-		result[postID] = info
+		if info.LikeCount == 0 && r.likeCounter == nil {
+			count, _ := r.getLikeCountFallback(ctx, TargetTypeComment, commentID)
+			info.LikeCount = count
+		}
+
+		result[commentID] = info
 	}
 
 	return result, nil

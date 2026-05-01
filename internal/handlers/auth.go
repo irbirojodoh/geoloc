@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -44,7 +45,10 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 		}
 
 		// Check if username already exists
-		existing, _ := userRepo.GetUserByUsername(c.Request.Context(), req.Username)
+		existing, err := userRepo.GetUserByUsername(c.Request.Context(), req.Username)
+		if err != nil && !strings.Contains(err.Error(), "user not found") {
+			slog.Error("auth: GetUserByUsername error", "error", err)
+		}
 		if existing != nil {
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "Username already exists",
@@ -53,7 +57,10 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 		}
 
 		// Check if email already exists
-		existing, _ = userRepo.GetUserByEmail(c.Request.Context(), req.Email)
+		existing, err = userRepo.GetUserByEmail(c.Request.Context(), req.Email)
+		if err != nil && !strings.Contains(err.Error(), "user not found") {
+			slog.Error("auth: GetUserByEmail error", "error", err)
+		}
 		if existing != nil {
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "Email already exists",
@@ -81,6 +88,7 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 
 		user, err := userRepo.CreateUser(c.Request.Context(), createReq)
 		if err != nil {
+			slog.Error("auth: CreateUser error", "error", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to create user",
 			})
@@ -132,6 +140,14 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err != nil || user == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Invalid credentials",
+			})
+			return
+		}
+
+		// Check if account has been deleted
+		if user.IsDeleted {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "This account has been deleted",
 			})
 			return
 		}

@@ -10,6 +10,9 @@ import (
 	"github.com/gocql/gocql"
 )
 
+// ErrAccountDeleted is returned when attempting to access a soft-deleted account
+var ErrAccountDeleted = fmt.Errorf("account has been deleted")
+
 type UserRepository struct {
 	session *gocql.Session
 }
@@ -164,12 +167,12 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*User, err
 
 	var user User
 	err = r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE id = ?
 	`, userID).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -193,12 +196,12 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 	var userID gocql.UUID
 
 	err := r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE username = ?
 	`, username).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -222,12 +225,12 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
 	var userID gocql.UUID
 
 	err := r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE email = ?
 	`, email).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -331,4 +334,62 @@ func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit in
 
 	iter.Close()
 	return users, nil
+}
+
+// UpdatePassword updates a user's password hash
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID, newPasswordHash string) error {
+	uid, err := gocql.ParseUUID(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user_id: %w", err)
+	}
+
+	now := time.Now()
+	return r.session.Query(`
+		UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?
+	`, newPasswordHash, now, uid).WithContext(ctx).Exec()
+}
+
+// SoftDeleteUser anonymizes PII and marks the account as deleted
+func (r *UserRepository) SoftDeleteUser(ctx context.Context, userID string) error {
+	uid, err := gocql.ParseUUID(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user_id: %w", err)
+	}
+
+	now := time.Now()
+	prefix := userID[:8] // Use first 8 chars of UUID for anonymized username
+
+	err = r.session.Query(`
+		UPDATE users SET
+			username = ?,
+			email = ?,
+			full_name = ?,
+			bio = ?,
+			phone_number = ?,
+			profile_picture_url = ?,
+			password_hash = ?,
+			is_deleted = ?,
+			deleted_at = ?,
+			updated_at = ?
+		WHERE id = ?
+	`,
+		"deleted_"+prefix,              // anonymized username
+		"deleted_"+userID+"@deleted.local", // anonymized email
+		"Deleted User",                  // anonymized name
+		"",                              // clear bio
+		"",                              // clear phone
+		"",                              // clear avatar
+		"",                              // disable password login
+		true,                            // mark as deleted
+		now,                             // deletion timestamp
+		now,                             // updated_at
+		uid,
+	).WithContext(ctx).Exec()
+
+	if err != nil {
+		return fmt.Errorf("failed to soft-delete user: %w", err)
+	}
+
+	slog.Info("[ACCOUNT] User soft-deleted and PII anonymized", "user_id", userID)
+	return nil
 }

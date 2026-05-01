@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -16,7 +17,7 @@ type ToggleLikeRequest struct {
 
 // TogglePostLike handles POST /api/v1/posts/:id/toggle-like
 // This is the idempotent version - safe for retries and double-clicks
-func TogglePostLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
+func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		postID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -40,6 +41,20 @@ func TogglePostLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 			return
 		}
 
+		if result.Changed && result.IsLiked && notifRepo != nil {
+			post, _ := postRepo.GetPostByID(c.Request.Context(), postID)
+			if post != nil && post.UserID != userID {
+				go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
+					UserID:     post.UserID,
+					Type:       data.NotificationTypeLike,
+					ActorID:    userID,
+					TargetType: data.TargetTypePost,
+					TargetID:   postID,
+					Message:    "liked your post",
+				})
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"is_liked":   result.IsLiked,
 			"like_count": result.LikeCount,
@@ -50,7 +65,7 @@ func TogglePostLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 
 // ToggleCommentLike handles POST /api/v1/comments/:id/toggle-like
 // This is the idempotent version - safe for retries and double-clicks
-func ToggleCommentLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
+func ToggleCommentLike(likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		commentID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -73,6 +88,20 @@ func ToggleCommentLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 			return
 		}
 
+		if result.Changed && result.IsLiked && notifRepo != nil {
+			comment, _ := commentRepo.GetCommentByID(c.Request.Context(), commentID)
+			if comment != nil && comment.UserID != userID {
+				go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
+					UserID:     comment.UserID,
+					Type:       data.NotificationTypeLike,
+					ActorID:    userID,
+					TargetType: data.TargetTypeComment,
+					TargetID:   commentID,
+					Message:    "liked your comment",
+				})
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"is_liked":   result.IsLiked,
 			"like_count": result.LikeCount,
@@ -86,6 +115,10 @@ func ToggleCommentLike(likeRepo *data.LikeRepository) gin.HandlerFunc {
 // LikePost handles POST /api/v1/posts/:id/like
 func LikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Sunset", "2026-08-01")
+		c.Header("Link", "</api/v1/posts/{id}/toggle-like>; rel=\"successor-version\"")
+		
 		postID := c.Param("id")
 		userID := auth.GetUserID(c)
 
@@ -113,6 +146,10 @@ func LikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 // UnlikePost handles DELETE /api/v1/posts/:id/like
 func UnlikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Sunset", "2026-08-01")
+		c.Header("Link", "</api/v1/posts/{id}/toggle-like>; rel=\"successor-version\"")
+
 		postID := c.Param("id")
 		userID := auth.GetUserID(c)
 
@@ -140,6 +177,10 @@ func UnlikePost(likeRepo *data.LikeRepository) gin.HandlerFunc {
 // LikeComment handles POST /api/v1/comments/:id/like
 func LikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Sunset", "2026-08-01")
+		c.Header("Link", "</api/v1/comments/{id}/toggle-like>; rel=\"successor-version\"")
+
 		commentID := c.Param("id")
 		userID := auth.GetUserID(c)
 
@@ -167,6 +208,10 @@ func LikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 // UnlikeComment handles DELETE /api/v1/comments/:id/like
 func UnlikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Deprecation", "true")
+		c.Header("Sunset", "2026-08-01")
+		c.Header("Link", "</api/v1/comments/{id}/toggle-like>; rel=\"successor-version\"")
+
 		commentID := c.Param("id")
 		userID := auth.GetUserID(c)
 
@@ -187,6 +232,22 @@ func UnlikeComment(likeRepo *data.LikeRepository) gin.HandlerFunc {
 			"message":    "Comment unliked",
 			"is_liked":   result.IsLiked,
 			"like_count": result.LikeCount,
+		})
+	}
+}
+
+// GetLikedPosts handles GET /api/v1/users/:id/liked-posts
+func GetLikedPosts(likeRepo *data.LikeRepository, postRepo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.Param("id")
+
+		c.JSON(http.StatusOK, gin.H{
+			"user_id":     userID,
+			"count":       0,
+			"data":        []data.Post{},
+			"has_more":    false,
+			"next_cursor": "",
+			"message":     "Reading from likes_by_user not fully implemented yet",
 		})
 	}
 }
