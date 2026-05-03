@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/cache"
@@ -23,6 +24,9 @@ import (
 	"social-geo-go/internal/geocoding"
 	"social-geo-go/internal/handlers"
 	"social-geo-go/internal/middleware"
+	"social-geo-go/internal/notifications"
+	"social-geo-go/internal/notifications/kafka"
+	"social-geo-go/internal/notifications/sse"
 	"social-geo-go/internal/push"
 	"social-geo-go/internal/storage"
 
@@ -108,7 +112,7 @@ func main() {
 	store := storage.NewLocalStorage(uploadPath, baseURL+"/uploads")
 
 	// Initialize push service
-	pushService := push.NewLogPushService()
+	deviceRepo := data.NewDeviceRepository(session)
 
 	// Initialize geocoding client
 	geoClient := geocoding.NewNominatimClient("Geoloc/1.0 (dev@geoloc.app)")
@@ -120,7 +124,25 @@ func main() {
 	commentRepo := data.NewCommentRepository(session, commentCounter)
 	followRepo := data.NewFollowRepository(session)
 	locFollowRepo := data.NewLocationFollowRepository(session)
-	notifRepo := data.NewNotificationRepository(session)
+	
+	var rawRedisClient *redis.Client
+	if redisClient != nil {
+		rawRedisClient = redisClient.Client()
+	}
+	notifRepo := data.NewNotificationRepository(session, rawRedisClient)
+	
+	// Initialize Notification Producer & Dispatcher
+	var notifProducer kafka.NotificationEventProducer
+	if os.Getenv("KAFKA_NOTIFICATIONS_ENABLED") == "true" {
+		brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+		if len(brokers) > 0 && brokers[0] != "" {
+			notifProducer = kafka.NewNotificationEventProducer(brokers)
+			defer notifProducer.Close()
+			log.Println("Kafka Notification Producer enabled")
+		}
+	}
+	notifDispatcher := notifications.NewDispatcher(notifProducer, notifRepo, rawRedisClient)
+	
 	locRepo := data.NewLocationRepository(session, geoClient)
 	resetRepo := data.NewPasswordResetRepository(session)
 	modRepo := data.NewModerationRepository(session)
@@ -222,7 +244,7 @@ func main() {
 		api.GET("/users/:id/liked-posts", handlers.GetLikedPosts(likeRepo, postRepo, userRepo, locRepo))
 
 		// Follow routes
-		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifRepo))
+		api.POST("/users/:id/follow", handlers.FollowUser(followRepo, notifDispatcher))
 		api.DELETE("/users/:id/follow", handlers.UnfollowUser(followRepo))
 		api.GET("/users/:id/followers", handlers.GetFollowers(followRepo))
 		api.GET("/users/:id/following", handlers.GetFollowing(followRepo))
@@ -236,27 +258,27 @@ func main() {
 		api.GET("/users/me/muted", handlers.GetMutedUsers(modRepo))
 
 		// Post routes
-		api.POST("/posts", handlers.CreatePost(postRepo, userRepo))
+		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher))
 		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
 		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 
 		// Post likes (legacy + new idempotent toggle)
 		api.POST("/posts/:id/like", handlers.LikePost(likeRepo))
 		api.DELETE("/posts/:id/like", handlers.UnlikePost(likeRepo))
-		api.POST("/posts/:id/toggle-like", handlers.TogglePostLike(likeRepo, postRepo, notifRepo))
+		api.POST("/posts/:id/toggle-like", handlers.TogglePostLike(likeRepo, postRepo, notifDispatcher))
 
 		// Post comments
-		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo, postRepo, notifRepo))
+		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo, postRepo, notifDispatcher))
 		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo, userRepo, likeRepo))
 
 		// Comment routes
-		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo, notifRepo))
+		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo, notifDispatcher))
 		api.GET("/comments/:id/replies", handlers.GetReplies(commentRepo, userRepo, likeRepo))
 		api.PUT("/comments/:id", handlers.EditComment(commentRepo))
 		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
 		api.POST("/comments/:id/like", handlers.LikeComment(likeRepo))
 		api.DELETE("/comments/:id/like", handlers.UnlikeComment(likeRepo))
-		api.POST("/comments/:id/toggle-like", handlers.ToggleCommentLike(likeRepo, commentRepo, notifRepo))
+		api.POST("/comments/:id/toggle-like", handlers.ToggleCommentLike(likeRepo, commentRepo, notifDispatcher))
 
 		// Location follow routes
 		api.POST("/locations/follow", handlers.FollowLocation(locFollowRepo))
@@ -265,23 +287,76 @@ func main() {
 
 		// Notification routes
 		api.GET("/notifications", handlers.GetNotifications(notifRepo))
+		api.GET("/notifications/stream", sse.StreamNotifications(rawRedisClient))
+		api.GET("/notifications/unread-count", handlers.GetUnreadCount(notifRepo))
 		api.PUT("/notifications/:id/read", handlers.MarkNotificationAsRead(notifRepo))
 		api.PUT("/notifications/read-all", handlers.MarkAllNotificationsAsRead(notifRepo))
+		api.DELETE("/notifications/:id", handlers.DeleteNotification(notifRepo))
 
 		// Search routes
 		api.GET("/search/users", handlers.SearchUsers(userRepo))
-		api.GET("/search/posts", handlers.SearchPosts(postRepo))
+		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo))
 
 		// Upload routes
 		api.POST("/upload/avatar", handlers.UploadAvatar(store))
 		api.POST("/upload/post", handlers.UploadPostMedia(store))
 
 		// Device registration (push notifications)
-		api.POST("/devices", handlers.RegisterDevice(pushService))
-		api.DELETE("/devices", handlers.UnregisterDevice(pushService))
+		api.POST("/devices", handlers.RegisterDevice(deviceRepo))
+		api.DELETE("/devices", handlers.UnregisterDevice(deviceRepo))
 
 		// Content moderation
 		api.POST("/reports", handlers.CreateReport(modRepo))
+	}
+
+	// Start Kafka Consumers
+	var consumerCtx context.Context
+	var consumerCancel context.CancelFunc
+	if os.Getenv("KAFKA_NOTIFICATIONS_ENABLED") == "true" {
+		consumerCtx, consumerCancel = context.WithCancel(context.Background())
+		brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+		prefix := os.Getenv("KAFKA_CONSUMER_GROUP_PREFIX")
+		if prefix == "" {
+			prefix = "geoloc"
+		}
+		
+		if len(brokers) > 0 && brokers[0] != "" {
+			persisterHandler := kafka.NewPersisterHandler(notifRepo, rawRedisClient, modRepo, deviceRepo, notifProducer)
+			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-persister", "notification.events", persisterHandler.Handle)
+			log.Println("Started notif-persister consumer group")
+			
+			if rawRedisClient != nil {
+				sseHandler := kafka.NewSSEFanoutHandler(rawRedisClient)
+				go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-sse-fanout", "notification.events", sseHandler.Handle)
+				log.Println("Started notif-sse-fanout consumer group")
+			}
+
+			// Push Notifications Service
+			var pushService push.PushService
+			if os.Getenv("PUSH_NOTIFICATIONS_ENABLED") == "true" && os.Getenv("FCM_PROJECT_ID") != "" {
+				fcmSvc, err := push.NewFCMService(context.Background(), os.Getenv("FCM_PROJECT_ID"), os.Getenv("FCM_CREDENTIALS_JSON"))
+				if err != nil {
+					log.Printf("Failed to init FCM: %v, falling back to mock", err)
+					pushService = push.NewLogPushService()
+				} else {
+					pushService = fcmSvc
+				}
+			} else {
+				pushService = push.NewLogPushService()
+			}
+
+			pushDispatchHandler := kafka.NewPushDispatchHandler(pushService, notifProducer)
+			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-push-dispatch", "notification.push.dispatch", pushDispatchHandler.Handle)
+			log.Println("Started notif-push-dispatch consumer group")
+
+			pushRetryHandler := kafka.NewPushRetryHandler(pushService, notifProducer)
+			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-push-retry", "notification.push.retry", pushRetryHandler.Handle)
+			log.Println("Started notif-push-retry consumer group")
+
+			nearbyFanoutHandler := kafka.NewNearbyFanoutHandler(locFollowRepo, notifProducer)
+			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-nearby-fanout", "notification.nearby.fanout", nearbyFanoutHandler.Handle)
+			log.Println("Started notif-nearby-fanout consumer group")
+		}
 	}
 
 	// Start server
@@ -316,6 +391,9 @@ func main() {
 	}
 
 	// Cleanup background resources
+	if consumerCancel != nil {
+		consumerCancel()
+	}
 	geoClient.Close()
 	slog.Info("Server shutdown complete")
 

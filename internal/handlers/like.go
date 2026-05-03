@@ -3,12 +3,24 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"log/slog"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
+	"time"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/notifications"
+	"social-geo-go/internal/notifications/kafka"
 )
+
+func truncateText(s string, max int) string {
+	if len(s) > max {
+		return s[:max] + "..."
+	}
+	return s
+}
 
 // ToggleLikeRequest represents a toggle like request body
 type ToggleLikeRequest struct {
@@ -17,7 +29,7 @@ type ToggleLikeRequest struct {
 
 // TogglePostLike handles POST /api/v1/posts/:id/toggle-like
 // This is the idempotent version - safe for retries and double-clicks
-func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
+func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		postID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -35,22 +47,26 @@ func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository
 
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, req.Like)
 		if err != nil {
+			slog.Error("TogglePostLike failed", "error", err, "post_id", postID, "user_id", userID, "want_liked", req.Like)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to toggle like",
 			})
 			return
 		}
 
-		if result.Changed && result.IsLiked && notifRepo != nil {
+		if result.Changed && result.IsLiked && notifDispatcher != nil {
 			post, _ := postRepo.GetPostByID(c.Request.Context(), postID)
 			if post != nil && post.UserID != userID {
-				go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
-					UserID:     post.UserID,
-					Type:       data.NotificationTypeLike,
-					ActorID:    userID,
-					TargetType: data.TargetTypePost,
-					TargetID:   postID,
-					Message:    "liked your post",
+				go notifDispatcher.Dispatch(context.Background(), &kafka.NotificationEvent{
+					EventID:     gocql.TimeUUID().String(),
+					EventType:   data.NotificationTypeLike,
+					ActorID:     userID,
+					RecipientID: post.UserID,
+					TargetType:  data.TargetTypePost,
+					TargetID:    postID,
+					Message:     "liked your post",
+					Payload:     map[string]string{"post_preview": truncateText(post.Content, 100)},
+					CreatedAt:   time.Now().Format(time.RFC3339),
 				})
 			}
 		}
@@ -65,7 +81,7 @@ func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository
 
 // ToggleCommentLike handles POST /api/v1/comments/:id/toggle-like
 // This is the idempotent version - safe for retries and double-clicks
-func ToggleCommentLike(likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
+func ToggleCommentLike(likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		commentID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -82,22 +98,26 @@ func ToggleCommentLike(likeRepo *data.LikeRepository, commentRepo *data.CommentR
 
 		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, req.Like)
 		if err != nil {
+			slog.Error("ToggleCommentLike failed", "error", err, "comment_id", commentID, "user_id", userID, "want_liked", req.Like)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to toggle like",
 			})
 			return
 		}
 
-		if result.Changed && result.IsLiked && notifRepo != nil {
+		if result.Changed && result.IsLiked && notifDispatcher != nil {
 			comment, _ := commentRepo.GetCommentByID(c.Request.Context(), commentID)
 			if comment != nil && comment.UserID != userID {
-				go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
-					UserID:     comment.UserID,
-					Type:       data.NotificationTypeLike,
-					ActorID:    userID,
-					TargetType: data.TargetTypeComment,
-					TargetID:   commentID,
-					Message:    "liked your comment",
+				go notifDispatcher.Dispatch(context.Background(), &kafka.NotificationEvent{
+					EventID:     gocql.TimeUUID().String(),
+					EventType:   data.NotificationTypeLike,
+					ActorID:     userID,
+					RecipientID: comment.UserID,
+					TargetType:  data.TargetTypeComment,
+					TargetID:    commentID,
+					Message:     "liked your comment",
+					Payload:     map[string]string{"comment_preview": truncateText(comment.Content, 100)},
+					CreatedAt:   time.Now().Format(time.RFC3339),
 				})
 			}
 		}

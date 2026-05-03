@@ -10,7 +10,7 @@ import (
 )
 
 func TestNotificationRepository_Integration(t *testing.T) {
-	repo := NewNotificationRepository(testSession)
+	repo := NewNotificationRepository(testSession, nil)
 	ctx := context.Background()
 
 	userID := uuid.New().String()

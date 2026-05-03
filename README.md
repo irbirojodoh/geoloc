@@ -20,6 +20,11 @@ graph TD
         
         API1 -->|HTTP| Nominatim[Nominatim Geocoding API]
         API2 -->|HTTP| Nominatim
+
+        API1 -->|Produce/Consume| Kafka[(Apache Kafka)]
+        API2 -->|Produce/Consume| Kafka
+        
+        Kafka -->|FCM API| FCM[Firebase Cloud Messaging]
     end
     
     subgraph Data Models [Cassandra Denormalized Tables]
@@ -34,6 +39,7 @@ graph TD
     subgraph Caching [Redis Keys]
         Redis -.->|Rate Limiting| R1(Rate Limits)
         Redis -.->|Counters| R2(Atomic Like Counters)
+        Redis -.->|Pub/Sub| R3(SSE Real-time Streams)
     end
 ```
 
@@ -41,7 +47,10 @@ graph TD
 
 - 🌍 **Geospatial Posts**: Store and query posts using Geohashing for fast proximity-based feeds.
 - 📍 **Denormalized Feed**: High-performance feed retrieval from Cassandra `posts_by_geohash` tables.
-- ⚡ **Highly Scalable**: Stateless Go API, horizontally scalable Cassandra cluster, and Redis atomic counters.
+- ⚡ **Highly Scalable**: Stateless Go API, horizontally scalable Cassandra cluster, Redis atomic counters, and **Apache Kafka** event streaming.
+- 🔔 **Event-Driven Notifications**: Asynchronous background dispatch of notifications using Kafka topics.
+- 🔴 **Real-time SSE Streams**: Live push of notifications to connected clients via Redis Pub/Sub & Server-Sent Events.
+- 📲 **Push Notifications**: Firebase Cloud Messaging (FCM) integration with persistent retry queues.
 - 🔒 **Security First**: Bcrypt password hashing, JWT authentication (no default secrets), strict CORS, and brute-force protection.
 - 🛡️ **Content Moderation**: Built-in user reporting, blocking, and muting system.
 - 🗑️ **GDPR Compliant**: Full soft-deletion support with PII anonymization.
@@ -52,7 +61,9 @@ graph TD
 - **Language**: Go 1.24+
 - **Web Framework**: Gin
 - **Database**: Apache Cassandra (gocql driver)
-- **Cache & Rate Limiting**: Redis (go-redis)
+- **Message Broker**: Apache Kafka (segmentio/kafka-go)
+- **Cache & Pub/Sub**: Redis (go-redis)
+- **Push Delivery**: Firebase Cloud Messaging (FCM)
 - **Reverse Proxy**: Caddy (Auto Let's Encrypt TLS)
 - **Authentication**: JWT & OAuth (Goth)
 
@@ -75,6 +86,7 @@ This starts:
 - Caddy reverse proxy (`geoloc_caddy`)
 - Apache Cassandra (`geoloc_cassandra`)
 - Redis (`geoloc_redis`)
+- Apache Kafka & Kafka UI (`kafka`, `kafka-ui`)
 
 ### 2. Apply Cassandra Migrations
 

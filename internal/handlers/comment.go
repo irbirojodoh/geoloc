@@ -6,9 +6,13 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
+	"time"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/notifications"
+	"social-geo-go/internal/notifications/kafka"
 )
 
 // Helper to enrich comments with user info
@@ -85,7 +89,7 @@ func enrichCommentsWithLikeInfo(ctx context.Context, comments []data.Comment, li
 }
 
 // CreateComment handles POST /api/v1/posts/:id/comments
-func CreateComment(commentRepo *data.CommentRepository, postRepo *data.PostRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
+func CreateComment(commentRepo *data.CommentRepository, postRepo *data.PostRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		postID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -124,14 +128,17 @@ func CreateComment(commentRepo *data.CommentRepository, postRepo *data.PostRepos
 
 		// Notify post author
 		post, _ := postRepo.GetPostByID(c.Request.Context(), req.PostID)
-		if post != nil && post.UserID != userID && notifRepo != nil {
-			go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
-				UserID:     post.UserID,
-				Type:       data.NotificationTypeComment,
-				ActorID:    userID,
-				TargetType: data.TargetTypePost,
-				TargetID:   req.PostID,
-				Message:    "commented on your post",
+		if post != nil && post.UserID != userID && notifDispatcher != nil {
+			go notifDispatcher.Dispatch(context.Background(), &kafka.NotificationEvent{
+				EventID:     gocql.TimeUUID().String(),
+				EventType:   data.NotificationTypeComment,
+				ActorID:     userID,
+				RecipientID: post.UserID,
+				TargetType:  data.TargetTypePost,
+				TargetID:    req.PostID,
+				Message:     "commented on your post",
+				Payload:     map[string]string{"comment_preview": truncateText(comment.Content, 100)},
+				CreatedAt:   time.Now().Format(time.RFC3339),
 			})
 		}
 
@@ -267,7 +274,7 @@ func GetReplies(commentRepo *data.CommentRepository, userRepo *data.UserReposito
 }
 
 // ReplyToComment handles POST /api/v1/comments/:id/reply
-func ReplyToComment(commentRepo *data.CommentRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
+func ReplyToComment(commentRepo *data.CommentRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		parentID := c.Param("id")
 		userID := auth.GetUserID(c)
@@ -316,14 +323,17 @@ func ReplyToComment(commentRepo *data.CommentRepository, notifRepo *data.Notific
 		}
 
 		// Notify parent comment author
-		if parent.UserID != userID && notifRepo != nil {
-			go notifRepo.CreateNotification(context.Background(), &data.CreateNotificationRequest{
-				UserID:     parent.UserID,
-				Type:       data.NotificationTypeComment,
-				ActorID:    userID,
-				TargetType: data.TargetTypeComment,
-				TargetID:   parentID,
-				Message:    "replied to your comment",
+		if parent.UserID != userID && notifDispatcher != nil {
+			go notifDispatcher.Dispatch(context.Background(), &kafka.NotificationEvent{
+				EventID:     gocql.TimeUUID().String(),
+				EventType:   data.NotificationTypeComment,
+				ActorID:     userID,
+				RecipientID: parent.UserID,
+				TargetType:  data.TargetTypeComment,
+				TargetID:    parentID,
+				Message:     "replied to your comment",
+				Payload:     map[string]string{"comment_preview": truncateText(comment.Content, 100)},
+				CreatedAt:   time.Now().Format(time.RFC3339),
 			})
 		}
 

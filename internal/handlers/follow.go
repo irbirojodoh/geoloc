@@ -5,13 +5,18 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
+	"time"
+	"context"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/notifications"
+	"social-geo-go/internal/notifications/kafka"
 )
 
 // FollowUser handles POST /api/v1/users/:id/follow
-func FollowUser(followRepo *data.FollowRepository, notifRepo *data.NotificationRepository) gin.HandlerFunc {
+func FollowUser(followRepo *data.FollowRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		followerID := auth.GetUserID(c)
 		followingID := c.Param("id")
@@ -34,12 +39,18 @@ func FollowUser(followRepo *data.FollowRepository, notifRepo *data.NotificationR
 		}
 
 		// Create notification for followed user
-		go notifRepo.CreateNotification(c.Request.Context(), &data.CreateNotificationRequest{ //nolint:errcheck
-			UserID:  followingID,
-			Type:    data.NotificationTypeFollow,
-			ActorID: followerID,
-			Message: "started following you",
-		})
+		if notifDispatcher != nil {
+			go notifDispatcher.Dispatch(context.Background(), &kafka.NotificationEvent{
+				EventID:     gocql.TimeUUID().String(),
+				EventType:   data.NotificationTypeFollow,
+				ActorID:     followerID,
+				RecipientID: followingID,
+				TargetType:  "user",
+				TargetID:    followerID,
+				Message:     "started following you",
+				CreatedAt:   time.Now().Format(time.RFC3339),
+			})
+		}
 
 		c.JSON(http.StatusOK, gin.H{"message": "User followed"})
 	}

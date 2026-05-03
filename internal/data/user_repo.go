@@ -303,36 +303,81 @@ func (r *UserRepository) UpdateLastSeen(ctx context.Context, id, ipAddress strin
 	`, now, ipAddress, userID).WithContext(ctx).Exec()
 }
 
-// SearchUsers searches for users by username
+// SearchUsers searches for users by username or full_name using SAI prefix matching.
+// Runs two parallel queries (username LIKE, full_name LIKE) and deduplicates.
 func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit int) ([]User, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
 
-	// Utilize Cassandra SAI indexes for exact matching (case-insensitive)
-	iter := r.session.Query(`
+	// Normalize query for LIKE prefix matching
+	searchPattern := strings.ToLower(query) + "%"
+
+	// Search by username (prefix match via SAI)
+	usernameIter := r.session.Query(`
 		SELECT id, username, email, full_name, bio, profile_picture_url, created_at, updated_at
 		FROM users
-		WHERE username = ?
-	`, query).WithContext(ctx).Iter()
+		WHERE username LIKE ?
+		LIMIT ?
+	`, searchPattern, limit).WithContext(ctx).Iter()
 
+	seen := make(map[string]bool)
 	var users []User
+
 	var user User
 	var id gocql.UUID
-
-	for iter.Scan(&id, &user.Username, &user.Email, &user.FullName, &user.Bio, &user.ProfilePictureURL, &user.CreatedAt, &user.UpdatedAt) {
-		user.ID = id.String()
-		// Apply default cover image if empty
-		if user.CoverImageURL == "" {
-			user.CoverImageURL = DefaultCoverImageURL
+	for usernameIter.Scan(&id, &user.Username, &user.Email, &user.FullName,
+		&user.Bio, &user.ProfilePictureURL, &user.CreatedAt, &user.UpdatedAt) {
+		idStr := id.String()
+		if !seen[idStr] {
+			user.ID = idStr
+			if user.CoverImageURL == "" {
+				user.CoverImageURL = DefaultCoverImageURL
+			}
+			// Filter out soft-deleted users
+			if !user.IsDeleted {
+				users = append(users, user)
+				seen[idStr] = true
+			}
 		}
-		users = append(users, user)
+		user = User{}
 		if len(users) >= limit {
 			break
 		}
 	}
+	usernameIter.Close()
 
-	iter.Close()
+	// If we haven't hit the limit, also search by full_name
+	if len(users) < limit {
+		remaining := limit - len(users)
+		nameIter := r.session.Query(`
+			SELECT id, username, email, full_name, bio, profile_picture_url, created_at, updated_at
+			FROM users
+			WHERE full_name LIKE ?
+			LIMIT ?
+		`, searchPattern, remaining).WithContext(ctx).Iter()
+
+		for nameIter.Scan(&id, &user.Username, &user.Email, &user.FullName,
+			&user.Bio, &user.ProfilePictureURL, &user.CreatedAt, &user.UpdatedAt) {
+			idStr := id.String()
+			if !seen[idStr] {
+				user.ID = idStr
+				if user.CoverImageURL == "" {
+					user.CoverImageURL = DefaultCoverImageURL
+				}
+				if !user.IsDeleted {
+					users = append(users, user)
+					seen[idStr] = true
+				}
+			}
+			user = User{}
+			if len(users) >= limit {
+				break
+			}
+		}
+		nameIter.Close()
+	}
+
 	return users, nil
 }
 

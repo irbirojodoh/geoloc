@@ -203,17 +203,19 @@ const (
 	NotificationTypeLocationPost = "location_post"
 )
 
-// Notification represents a user notification
+// Notification represents a user notification (V2)
 type Notification struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	Type       string    `json:"type"`
-	ActorID    string    `json:"actor_id"`
-	TargetType string    `json:"target_type,omitempty"`
-	TargetID   string    `json:"target_id,omitempty"`
-	Message    string    `json:"message"`
-	IsRead     bool      `json:"is_read"`
-	CreatedAt  time.Time `json:"created_at"`
+	ID         string            `json:"id"`
+	UserID     string            `json:"user_id"`
+	Type       string            `json:"type"`
+	ActorID    string            `json:"actor_id"`
+	TargetType string            `json:"target_type,omitempty"`
+	TargetID   string            `json:"target_id,omitempty"`
+	Message    string            `json:"message"`
+	Payload    map[string]string `json:"payload,omitempty"`
+	IsRead     bool              `json:"is_read"`
+	IsDeleted  bool              `json:"-"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 // CreateNotificationRequest represents the request to create a notification
@@ -224,4 +226,5 @@ type CreateNotificationRequest struct {
 	TargetType string
 	TargetID   string
 	Message    string
+	Payload    map[string]string
 }

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -65,8 +66,14 @@ func MarkNotificationAsRead(notifRepo *data.NotificationRepository) gin.HandlerF
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "Notification marked as read"})
+		c.JSON(http.StatusOK, gin.H{"message": "Notification marked as read", "unread_count": getUnreadCountSafe(c.Request.Context(), notifRepo, userID)})
 	}
+}
+
+// getUnreadCountSafe safely retrieves the unread count, returning 0 on error
+func getUnreadCountSafe(ctx context.Context, notifRepo *data.NotificationRepository, userID string) int {
+	count, _ := notifRepo.GetUnreadCount(ctx, userID)
+	return count
 }
 
 // MarkAllNotificationsAsRead handles PUT /api/v1/notifications/read-all
@@ -86,6 +93,50 @@ func MarkAllNotificationsAsRead(notifRepo *data.NotificationRepository) gin.Hand
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "All notifications marked as read"})
+		c.JSON(http.StatusOK, gin.H{"message": "All notifications marked as read", "unread_count": 0})
+	}
+}
+
+// GetUnreadCount handles GET /api/v1/notifications/unread-count
+func GetUnreadCount(notifRepo *data.NotificationRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := auth.GetUserID(c)
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		count, err := notifRepo.GetUnreadCount(c.Request.Context(), userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"unread_count": count})
+	}
+}
+
+// DeleteNotification handles DELETE /api/v1/notifications/:id
+func DeleteNotification(notifRepo *data.NotificationRepository) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := auth.GetUserID(c)
+		notificationID := c.Param("id")
+
+		if userID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+			return
+		}
+
+		err := notifRepo.DeleteNotification(c.Request.Context(), userID, notificationID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"message": "Notification deleted", "unread_count": getUnreadCountSafe(c.Request.Context(), notifRepo, userID)})
 	}
 }

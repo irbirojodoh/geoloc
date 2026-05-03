@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"social-geo-go/internal/auth"
-	"social-geo-go/internal/push"
+	"social-geo-go/internal/data"
 )
 
 // RegisterDeviceRequest represents the request to register a device token
@@ -16,7 +16,7 @@ type RegisterDeviceRequest struct {
 }
 
 // RegisterDevice handles POST /api/v1/devices
-func RegisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
+func RegisterDevice(deviceRepo *data.DeviceRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := auth.GetUserID(c)
 		if userID == "" {
@@ -32,7 +32,11 @@ func RegisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
 			return
 		}
 
-		pushService.RegisterDevice(userID, req.Token, req.Platform)
+		err := deviceRepo.RegisterDevice(c.Request.Context(), userID, req.Token, req.Platform)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register device"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Device registered",
@@ -41,7 +45,7 @@ func RegisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
 }
 
 // UnregisterDevice handles DELETE /api/v1/devices
-func UnregisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
+func UnregisterDevice(deviceRepo *data.DeviceRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := auth.GetUserID(c)
 		if userID == "" {
@@ -57,7 +61,11 @@ func UnregisterDevice(pushService *push.LogPushService) gin.HandlerFunc {
 			return
 		}
 
-		pushService.UnregisterDevice(userID, req.Token)
+		err := deviceRepo.UnregisterDevice(c.Request.Context(), userID, req.Token)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unregister device"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Device unregistered",

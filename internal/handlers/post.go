@@ -7,13 +7,18 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
+	"time"
+	"context"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/notifications"
+	"social-geo-go/internal/notifications/kafka"
 )
 
 // CreatePost handles POST /api/v1/posts
-func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gin.HandlerFunc {
+func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.CreatePostRequest
 
@@ -64,6 +69,21 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository) gi
 				"error":   "Failed to create post",
 			})
 			return
+		}
+
+		if notifDispatcher != nil {
+			contentTruncated := post.Content
+			if len(contentTruncated) > 100 {
+				contentTruncated = contentTruncated[:100] + "..."
+			}
+			go notifDispatcher.DispatchNearbyFanout(context.Background(), &kafka.NearbyFanoutJob{
+				EventID:   gocql.TimeUUID().String(),
+				PostID:    post.ID,
+				AuthorID:  post.UserID,
+				Geohash:   post.Geohash,
+				Content:   contentTruncated,
+				CreatedAt: time.Now().Format(time.RFC3339),
+			})
 		}
 
 		c.JSON(http.StatusCreated, gin.H{

@@ -1,6 +1,6 @@
 services:
   cassandra-1:
-    image: cassandra:4.1
+    image: cassandra:5.0
     container_name: geoloc-cassandra-1
     environment:
       CASSANDRA_CLUSTER_NAME: geoloc
@@ -25,7 +25,7 @@ services:
       - app
 
   cassandra-2:
-    image: cassandra:4.1
+    image: cassandra:5.0
     container_name: geoloc-cassandra-2
     environment:
       CASSANDRA_CLUSTER_NAME: geoloc
@@ -51,7 +51,7 @@ services:
       - app
 
   cassandra-3:
-    image: cassandra:4.1
+    image: cassandra:5.0
     container_name: geoloc-cassandra-3
     environment:
       CASSANDRA_CLUSTER_NAME: geoloc
@@ -77,7 +77,7 @@ services:
       - app
 
   cassandra-db-init:
-    image: cassandra:4.1
+    image: cassandra:5.0
     container_name: geoloc-cassandra-init
     depends_on:
       cassandra-1:
@@ -103,6 +103,57 @@ services:
     profiles:
       - dev
       - app
+
+  # ============== KAFKA (KRaft mode — no ZooKeeper) ==============
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: geoloc-kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      CLUSTER_ID: "GeOlOcKaFkAcLuStErId01"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: geoloc-kafka-ui
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: geoloc-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles:
+      - dev
 
   redis:
     image: redis:7-alpine
@@ -138,12 +189,20 @@ services:
       PORT: 8080
       BASE_URL: http://localhost:8080
       UPLOAD_PATH: /app/uploads
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_NOTIFICATIONS_ENABLED: "true"
+      KAFKA_CONSUMER_GROUP_PREFIX: geoloc
+      PUSH_NOTIFICATIONS_ENABLED: "false"
+      FCM_PROJECT_ID: ""
+      FCM_CREDENTIALS_JSON: ""
     ports:
       - "8080:8080"
     depends_on:
       cassandra-db-init:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     volumes:
       - ./uploads:/app/uploads
@@ -181,3 +240,4 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
+  kafka_data:

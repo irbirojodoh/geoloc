@@ -234,37 +234,39 @@ func (r *PostRepository) GetPostsByUser(ctx context.Context, userIDStr string, l
 	return posts, nil
 }
 
-// SearchPosts searches for posts by content
+// SearchPosts searches for posts by content using SAI index.
+// Uses LIKE prefix matching on the content SAI index instead of full table scan.
 func (r *PostRepository) SearchPosts(ctx context.Context, query string, limit int) ([]Post, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
 
-	// Cassandra doesn't support full-text search
-	// In production, use Elasticsearch or similar
+	searchPattern := "%" + strings.ToLower(query) + "%"
+
 	iter := r.session.Query(`
 		SELECT post_id, user_id, content, media_urls, latitude, longitude, geohash, created_at
 		FROM posts_by_id
+		WHERE content LIKE ?
 		LIMIT ?
-	`, limit*5).WithContext(ctx).Iter()
+	`, searchPattern, limit).WithContext(ctx).Iter()
 
 	var posts []Post
 	var post Post
 	var postID, userID gocql.UUID
 	var mediaURLs []string
 
-	for iter.Scan(&postID, &userID, &post.Content, &mediaURLs, &post.Latitude, &post.Longitude, &post.Geohash, &post.CreatedAt) {
-		// Client-side filtering for content contains
-		if strings.Contains(strings.ToLower(post.Content), strings.ToLower(query)) {
-			post.ID = postID.String()
-			post.UserID = userID.String()
-			post.MediaURLs = mediaURLs
-			posts = append(posts, post)
-			if len(posts) >= limit {
-				break
-			}
-		}
+	for iter.Scan(&postID, &userID, &post.Content, &mediaURLs,
+		&post.Latitude, &post.Longitude, &post.Geohash, &post.CreatedAt) {
+		post.ID = postID.String()
+		post.UserID = userID.String()
+		post.MediaURLs = mediaURLs
+		posts = append(posts, post)
+
+		post = Post{}
 		mediaURLs = nil
+		if len(posts) >= limit {
+			break
+		}
 	}
 
 	iter.Close()

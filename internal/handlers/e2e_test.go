@@ -15,7 +15,7 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
-	"social-geo-go/internal/push"
+	"social-geo-go/internal/notifications"
 	"social-geo-go/internal/storage"
 )
 
@@ -34,11 +34,12 @@ func setupE2ERouter() *gin.Engine {
 	commentRepo := data.NewCommentRepository(testSession, nil)
 	followRepo := data.NewFollowRepository(testSession)
 	likeRepo := data.NewLikeRepository(testSession, nil) // nil redis for tests
-	notifRepo := data.NewNotificationRepository(testSession)
+	notifRepo := data.NewNotificationRepository(testSession, nil)
+	notifDispatcher := notifications.NewDispatcher(nil, notifRepo, nil)
 	locRepo := data.NewLocationRepository(testSession, nil) // nil geocoder for tests
 	locFollowRepo := data.NewLocationFollowRepository(testSession)
 	store := storage.NewLocalStorage("/tmp/test-uploads", "http://localhost:8080/uploads")
-	pushService := push.NewLogPushService()
+	deviceRepo := data.NewDeviceRepository(testSession)
 	resetRepo := data.NewPasswordResetRepository(testSession)
 	modRepo := data.NewModerationRepository(testSession)
 
@@ -67,7 +68,7 @@ func setupE2ERouter() *gin.Engine {
 		api.GET("/users/:id/posts", GetUserPosts(postRepo, userRepo, locRepo, likeRepo))
 
 		// Follow
-		api.POST("/users/:id/follow", FollowUser(followRepo, notifRepo))
+		api.POST("/users/:id/follow", FollowUser(followRepo, notifDispatcher))
 		api.DELETE("/users/:id/follow", UnfollowUser(followRepo))
 		api.GET("/users/:id/followers", GetFollowers(followRepo))
 		api.GET("/users/:id/following", GetFollowing(followRepo))
@@ -81,29 +82,29 @@ func setupE2ERouter() *gin.Engine {
 		api.GET("/users/me/muted", GetMutedUsers(modRepo))
 
 		// Posts
-		api.POST("/posts", CreatePost(postRepo, userRepo))
+		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher))
 		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo))
 		api.DELETE("/posts/:id", DeletePost(postRepo))
 
 		// data.Post likes
 		api.POST("/posts/:id/like", LikePost(likeRepo))
 		api.DELETE("/posts/:id/like", UnlikePost(likeRepo))
-		api.POST("/posts/:id/toggle-like", TogglePostLike(likeRepo, postRepo, notifRepo))
+		api.POST("/posts/:id/toggle-like", TogglePostLike(likeRepo, postRepo, notifDispatcher))
 
 		// Comments
-		api.POST("/posts/:id/comments", CreateComment(commentRepo, postRepo, notifRepo))
+		api.POST("/posts/:id/comments", CreateComment(commentRepo, postRepo, notifDispatcher))
 		api.GET("/posts/:id/comments", GetComments(commentRepo, userRepo, likeRepo))
 
 		// data.Comment actions
-		api.POST("/comments/:id/reply", ReplyToComment(commentRepo, notifRepo))
+		api.POST("/comments/:id/reply", ReplyToComment(commentRepo, notifDispatcher))
 		api.POST("/comments/:id/like", LikeComment(likeRepo))
 		api.DELETE("/comments/:id/like", UnlikeComment(likeRepo))
-		api.POST("/comments/:id/toggle-like", ToggleCommentLike(likeRepo, commentRepo, notifRepo))
+		api.POST("/comments/:id/toggle-like", ToggleCommentLike(likeRepo, commentRepo, notifDispatcher))
 		api.DELETE("/comments/:id", DeleteComment(commentRepo))
 
 		// Search
 		api.GET("/search/users", SearchUsers(userRepo))
-		api.GET("/search/posts", SearchPosts(postRepo))
+		api.GET("/search/posts", SearchPosts(postRepo, userRepo, likeRepo))
 
 		// Notifications
 		api.GET("/notifications", GetNotifications(notifRepo))
@@ -118,9 +119,9 @@ func setupE2ERouter() *gin.Engine {
 		api.POST("/upload/avatar", UploadAvatar(store))
 		api.POST("/upload/post", UploadPostMedia(store))
 
-		// Device
-		api.POST("/devices", RegisterDevice(pushService))
-		api.DELETE("/devices", UnregisterDevice(pushService))
+		// Push Devices
+		api.POST("/devices", RegisterDevice(deviceRepo))
+		api.DELETE("/devices", UnregisterDevice(deviceRepo))
 
 		// Reports
 		api.POST("/reports", CreateReport(modRepo))
