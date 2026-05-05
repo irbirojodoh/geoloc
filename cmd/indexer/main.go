@@ -1,5 +1,4 @@
 package main
-package main
 
 import (
 	"context"
@@ -147,8 +146,8 @@ func main() {
 		Brokers:        brokers,
 		GroupID:        groupID,
 		Topic:          topic,
-		MinBytes:       1e3,   // 1KB
-		MaxBytes:       10e6,  // 10MB
+		MinBytes:       1e3,  // 1KB
+		MaxBytes:       10e6, // 10MB
 		MaxWait:        500 * time.Millisecond,
 		CommitInterval: 0, // manual commit
 		ErrorLogger: kafkago.LoggerFunc(func(msg string, args ...interface{}) {

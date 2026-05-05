@@ -1,5 +1,4 @@
 package elasticsearch
-package elasticsearch
 
 import (
 	"bytes"
