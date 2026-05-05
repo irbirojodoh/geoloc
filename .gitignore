@@ -1,5 +1,6 @@
 # Ignore compiled binaries
 /bin/
+/api
 /main
 *.exe
 *.exe~
@@ -24,6 +25,9 @@
 !.env.development
 !.env.staging
 !.env.production
+
+# Firebase credentials
+keys/
 
 # Ignore IDE files
 .vscode/
