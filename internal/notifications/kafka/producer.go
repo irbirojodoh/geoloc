@@ -30,10 +30,11 @@ func NewNotificationEventProducer(brokers []string) NotificationEventProducer {
 		return &kafkago.Writer{
 			Addr:         kafkago.TCP(brokers...),
 			Topic:        topic,
-			Balancer:     &kafkago.Hash{}, // partition by key
-			RequiredAcks: kafkago.RequireAll,
-			Async:        async,
-			BatchTimeout: 10 * time.Millisecond,
+			Balancer:               &kafkago.Hash{}, // partition by key
+			RequiredAcks:           kafkago.RequireAll,
+			Async:                  async,
+			BatchTimeout:           10 * time.Millisecond,
+			AllowAutoTopicCreation: true,
 			ErrorLogger: kafkago.LoggerFunc(func(msg string, args ...interface{}) {
 				slog.Error("kafka producer error", "msg", msg, "args", args)
 			}),

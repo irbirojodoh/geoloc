@@ -1,16 +1,22 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
 
+	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/search"
 )
 
-// SearchUsers handles GET /api/v1/search/users
+// SearchUsers handles GET /api/v1/search/users (legacy Cassandra-backed search)
 func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := strings.TrimSpace(c.Query("q"))
@@ -45,7 +51,7 @@ func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
 	}
 }
 
-// SearchPosts handles GET /api/v1/search/posts
+// SearchPosts handles GET /api/v1/search/posts (legacy Cassandra-backed search)
 func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := strings.TrimSpace(c.Query("q"))
@@ -81,7 +87,7 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 				postIDs = append(postIDs, p.ID)
 			}
 			userInfoMap, _ := userRepo.GetUsersByIDs(c.Request.Context(), userIDs)
-			
+
 			currentUserID, _ := c.Get("user_id")
 			var uid string
 			if id, ok := currentUserID.(string); ok {
@@ -89,13 +95,12 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 			}
 
 			likeInfo, _ := likeRepo.GetLikesForPosts(c.Request.Context(), postIDs, uid)
-			
+
 			for i := range posts {
 				if info, ok := userInfoMap[posts[i].UserID]; ok {
 					posts[i].Username = info.Username
 					posts[i].ProfilePictureURL = info.ProfilePictureURL
 				}
-				// Enrich like state
 				if info, ok := likeInfo[posts[i].ID]; ok {
 					posts[i].IsLiked = info.IsLiked
 					posts[i].LikeCount = info.LikeCount
@@ -109,4 +114,297 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 			"count":   len(posts),
 		})
 	}
+}
+
+// NewSearchHandler holds dependencies for the new ES-backed search routes.
+type NewSearchHandler struct {
+	svc     search.Service
+	session *gocql.Session
+}
+
+// NewNewSearchHandler creates a new NewSearchHandler.
+func NewNewSearchHandler(svc search.Service, session *gocql.Session) *NewSearchHandler {
+	return &NewSearchHandler{svc: svc, session: session}
+}
+
+// SearchHandler handles GET /v1/search
+func (h *NewSearchHandler) SearchHandler(c *gin.Context) {
+	start := time.Now()
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+		return
+	}
+	if len(q) < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query must be at least 1 character"})
+		return
+	}
+
+	searchType := c.DefaultQuery("type", "all")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	if page <= 0 {
+		page = 1
+	}
+
+	ctx := c.Request.Context()
+
+	var (
+		posts    []search.PostResult
+		users    []search.UserResult
+		postsErr error
+		usersErr error
+	)
+	var wg sync.WaitGroup
+
+	searchPosts := searchType == "all" || searchType == "posts"
+	searchUsers := searchType == "all" || searchType == "users"
+
+	if searchPosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			posts, postsErr = h.svc.SearchPosts(ctx, q, 0, 0, 0)
+		}()
+	}
+
+	if searchUsers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			users, usersErr = h.svc.SearchUsers(ctx, q)
+		}()
+	}
+
+	wg.Wait()
+
+	// Return 503 if both queries failed — graceful degradation
+	if postsErr != nil && usersErr != nil {
+		slog.Error("search: both queries failed", "posts_err", postsErr, "users_err", usersErr)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "search unavailable"})
+		return
+	}
+	if postsErr != nil {
+		slog.Warn("search: posts query failed, returning partial results", "error", postsErr)
+	}
+	if usersErr != nil {
+		slog.Warn("search: users query failed, returning partial results", "error", usersErr)
+	}
+
+	// Hydrate posts from Cassandra
+	postIDs := make([]string, 0, len(posts))
+	for _, p := range posts {
+		postIDs = append(postIDs, p.PostID)
+	}
+	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
+
+	// Hydrate users from Cassandra
+	userIDs := make([]string, 0, len(users))
+	for _, u := range users {
+		userIDs = append(userIDs, u.UserID)
+	}
+	hydratedUsers, _ := search.HydrateUsers(ctx, userIDs, h.session)
+
+	// Mark like state for current user
+	_ = auth.GetUserID(c)
+
+	total := len(hydratedPosts) + len(hydratedUsers)
+
+	elapsed := time.Since(start)
+	slog.Info("search request complete",
+		"query", q,
+		"type", searchType,
+		"posts", len(hydratedPosts),
+		"users", len(hydratedUsers),
+		"elapsed_ms", elapsed.Milliseconds(),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"posts": hydratedPosts,
+		"users": hydratedUsers,
+		"total": total,
+		"query": q,
+	})
+}
+
+// SearchNearbyHandler handles GET /v1/search/nearby
+func (h *NewSearchHandler) SearchNearbyHandler(c *gin.Context) {
+	start := time.Now()
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+		return
+	}
+
+	latStr := c.Query("lat")
+	lonStr := c.Query("lon")
+	if latStr == "" || lonStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Parameters 'lat' and 'lon' are required"})
+		return
+	}
+
+	lat, err := strconv.ParseFloat(latStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'lat' value"})
+		return
+	}
+	lon, err := strconv.ParseFloat(lonStr, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'lon' value"})
+		return
+	}
+
+	radiusKm, _ := strconv.ParseFloat(c.DefaultQuery("radius_km", "5"), 64)
+	if radiusKm <= 0 {
+		radiusKm = 5
+	}
+
+	searchType := c.DefaultQuery("type", "all")
+	ctx := c.Request.Context()
+
+	var (
+		posts    []search.PostResult
+		users    []search.UserResult
+		postsErr error
+		usersErr error
+	)
+	var wg sync.WaitGroup
+
+	searchPosts := searchType == "all" || searchType == "posts"
+	searchUsers := searchType == "all" || searchType == "users"
+
+	if searchPosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			posts, postsErr = h.svc.SearchPosts(ctx, q, lat, lon, radiusKm)
+		}()
+	}
+
+	if searchUsers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			users, usersErr = h.svc.SearchUsers(ctx, q)
+		}()
+	}
+
+	wg.Wait()
+
+	if postsErr != nil && usersErr != nil {
+		slog.Error("search nearby: both queries failed", "posts_err", postsErr, "users_err", usersErr)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "search unavailable"})
+		return
+	}
+	if postsErr != nil {
+		slog.Warn("search nearby: posts query failed", "error", postsErr)
+	}
+	if usersErr != nil {
+		slog.Warn("search nearby: users query failed", "error", usersErr)
+	}
+
+	// Apply re-ranking for posts with geo context
+	if len(posts) > 0 {
+		posts = search.RankPosts(posts, lat, lon)
+	}
+
+	// Hydrate posts
+	postIDs := make([]string, 0, len(posts))
+	for _, p := range posts {
+		postIDs = append(postIDs, p.PostID)
+	}
+	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
+
+	// Hydrate users
+	userIDs := make([]string, 0, len(users))
+	for _, u := range users {
+		userIDs = append(userIDs, u.UserID)
+	}
+	hydratedUsers, _ := search.HydrateUsers(ctx, userIDs, h.session)
+
+	total := len(hydratedPosts) + len(hydratedUsers)
+
+	elapsed := time.Since(start)
+	slog.Info("search nearby complete",
+		"query", q,
+		"lat", lat,
+		"lon", lon,
+		"radius_km", radiusKm,
+		"posts", len(hydratedPosts),
+		"users", len(hydratedUsers),
+		"elapsed_ms", elapsed.Milliseconds(),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"posts": hydratedPosts,
+		"users": hydratedUsers,
+		"total": total,
+		"query": q,
+	})
+}
+
+// AutocompleteHandler handles GET /v1/autocomplete
+func (h *NewSearchHandler) AutocompleteHandler(c *gin.Context) {
+	start := time.Now()
+	q := strings.TrimSpace(c.Query("q"))
+	if q == "" || len(q) < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required (min 1 character)"})
+		return
+	}
+
+	searchType := c.DefaultQuery("type", "all")
+	ctx := c.Request.Context()
+
+	var (
+		usernames    []string
+		hashtags     []string
+		usernamesErr error
+		hashtagsErr  error
+	)
+	var wg sync.WaitGroup
+
+	searchUsers := searchType == "all" || searchType == "users"
+	searchHashtags := searchType == "all" || searchType == "hashtags"
+
+	if searchUsers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			usernames, usernamesErr = h.svc.AutocompleteUsernames(ctx, q)
+		}()
+	}
+
+	if searchHashtags {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			hashtags, hashtagsErr = h.svc.AutocompleteHashtags(ctx, q)
+		}()
+	}
+
+	wg.Wait()
+
+	if usernamesErr != nil {
+		slog.Warn("autocomplete usernames failed", "error", usernamesErr)
+	}
+	if hashtagsErr != nil {
+		slog.Warn("autocomplete hashtags failed", "error", hashtagsErr)
+	}
+
+	elapsed := time.Since(start)
+	slog.Info("autocomplete complete",
+		"prefix", q,
+		"type", searchType,
+		"usernames", len(usernames),
+		"hashtags", len(hashtags),
+		"elapsed_ms", elapsed.Milliseconds(),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"users":    usernames,
+		"hashtags": hashtags,
+	})
 }

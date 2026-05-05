@@ -5,47 +5,59 @@ High-level overview of the Geoloc system architecture.
 ## Components
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Mobile Clients                              │
-│                    (iOS / Android / Flutter)                         │
-└───────────────────────────────┬─────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          Mobile Clients                                │
+│                    (iOS / Android / Flutter)                           │
+└───────────────────────────────┬───────────────────────────────────────┘
                                 │ HTTPS
                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                           Load Balancer                              │
-│                        (nginx / Cloud LB)                            │
-└───────────────────────────────┬─────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                           Load Balancer                                │
+│                        (nginx / Cloud LB)                              │
+└───────────────────────────────┬───────────────────────────────────────┘
                                 │
                                 ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                          Go API Server                               │
-│                         (Gin Framework)                              │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐ │
-│  │   Auth   │  │  Posts   │  │  Users   │  │  Location/Geocoding  │ │
-│  │ Handlers │  │ Handlers │  │ Handlers │  │      Handlers        │ │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────────────────┘ │
-│  ┌────────────────────────────────────────────────────────────────┐ │
-│  │                    Middleware Layer                             │ │
-│  │   (Auth, Rate Limiting, CORS, Request Logging)                  │ │
-│  └────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────┬─────────────────────────────────────┘
-                                │
-          ┌─────────────────────┼─────────────────────┐
-          │                     │                     │
-          ▼                     ▼                     ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐
-│    Cassandra    │  │   File Storage  │  │     Nominatim API       │
-│    Database     │  │    (uploads/)   │  │   (Reverse Geocoding)   │
-└─────────────────┘  └─────────────────┘  └─────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          Go API Server                                 │
+│                         (Gin Framework)                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│  │   Auth   │  │  Posts   │  │  Users   │  │  Search  │  │  Geo   │ │
+│  │ Handlers │  │ Handlers │  │ Handlers │  │ Handlers │  │Handlers│ │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │                    Middleware Layer                               │ │
+│  │   (Auth, Rate Limiting, CORS, Request Logging, Timeout)          │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+└───────────────┬───────────────────┬───────────────────┬───────────────┘
+                │                   │                   │
+          ┌─────┴─────┐       ┌─────┴─────┐       ┌─────┴─────┐
+          ▼           ▼       ▼           ▼       ▼           ▼
+┌─────────────────┐  ┌──────────────┐  ┌─────────────────────────┐
+│    Cassandra    │  │ Elasticsearch│  │     Nominatim API       │
+│    Database     │  │  (Full-text) │  │   (Reverse Geocoding)   │
+└─────────────────┘  └──────────────┘  └─────────────────────────┘
+                          ▲
+                          │ Index (posts.created topic)
+                    ┌─────┴─────┐
+                    │  Search   │
+                    │  Indexer  │
+                    │ (Kafka    │
+                    │ Consumer) │
+                    └───────────┘
 ```
 
 ## Technology Stack
 
 | Layer | Technology |
 |-------|------------|
-| API Language | Go 1.21+ |
+| API Language | Go 1.24+ |
 | Web Framework | Gin |
 | Database | Apache Cassandra 4.1 |
+| Search Engine | Elasticsearch 8.13+ |
+| Message Broker | Apache Kafka (KRaft mode) |
+| Cache & Pub/Sub | Redis 7+ |
+| Full-Text Search | Elasticsearch with edge n-gram analyzers |
+| Autocomplete | Redis sorted sets (ZRANGEBYLEX) |
 | Authentication | JWT (HS256) |
 | File Storage | Local filesystem |
 | Geocoding | Nominatim (OSM) |

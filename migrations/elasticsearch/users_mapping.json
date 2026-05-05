@@ -1,0 +1,34 @@
+{
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "username_analyzer": {
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "username_ngram"]
+        },
+        "display_name_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "username_ngram"]
+        }
+      },
+      "filter": {
+        "username_ngram": {
+          "type": "edge_ngram",
+          "min_gram": 1,
+          "max_gram": 20
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "user_id":        { "type": "keyword" },
+      "username":       { "type": "text", "analyzer": "username_analyzer", "search_analyzer": "standard" },
+      "display_name":   { "type": "text", "analyzer": "display_name_analyzer", "search_analyzer": "standard" },
+      "follower_count": { "type": "integer" },
+      "is_verified":    { "type": "boolean" },
+      "avatar_url":     { "type": "keyword", "index": false }
+    }
+  }
+}

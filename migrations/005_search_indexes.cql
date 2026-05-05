@@ -7,7 +7,8 @@ USE geoloc;
 
 -- SAI index on posts_by_id.content for content search
 -- Using 'normalize' and 'case_sensitive: false' for case-insensitive matching
-CREATE CUSTOM INDEX IF NOT EXISTS post_content_sai_idx 
+DROP INDEX IF EXISTS post_content_sai_idx;
+CREATE CUSTOM INDEX post_content_sai_idx 
   ON posts_by_id (content) 
   USING 'StorageAttachedIndex' 
   WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};

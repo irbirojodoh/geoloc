@@ -51,51 +51,74 @@ Initialize a Flutter project for **Geoloc**, a hyper-local social media app. The
 ### Protected Endpoints (Require `Authorization: Bearer <token>`)
 
 **Profile & Users**
-- `PUT /users/me` - Update current user profile
-- `GET /users/:id` - Get user by ID
-- `GET /users/:id/posts` - Get user's posts
+- `GET /api/v1/users/me` - Get current user profile
+- `PUT /api/v1/users/me` - Update current user profile
+- `DELETE /api/v1/users/me` - Delete account
+- `GET /api/v1/users/username/:username` - Get user by username
+- `GET /api/v1/users/:id` - Get user by ID
+- `GET /api/v1/users/:id/posts` - Get user's posts
+- `GET /api/v1/users/:id/liked-posts` - Get user's liked posts
 
 **Follows**
-- `POST /users/:id/follow` - Follow user
-- `DELETE /users/:id/follow` - Unfollow user
-- `GET /users/:id/followers` - Get user's followers
-- `GET /users/:id/following` - Get user's following
+- `POST /api/v1/users/:id/follow` - Follow user
+- `DELETE /api/v1/users/:id/follow` - Unfollow user
+- `GET /api/v1/users/:id/followers` - Get user's followers
+- `GET /api/v1/users/:id/following` - Get user's following
+
+**Block / Mute**
+- `POST /api/v1/users/:id/block` - Block user
+- `DELETE /api/v1/users/:id/block` - Unblock user
+- `POST /api/v1/users/:id/mute` - Mute user
+- `DELETE /api/v1/users/:id/mute` - Unmute user
+- `GET /api/v1/users/me/blocked` - Get blocked users
+- `GET /api/v1/users/me/muted` - Get muted users
 
 **Posts**
-- `POST /posts` - Create post (with location)
-- `GET /posts/:id` - Get single post
-- `POST /posts/:id/like` - Like post
-- `DELETE /posts/:id/like` - Unlike post
-- `POST /posts/:id/comments` - Add comment
-- `GET /posts/:id/comments` - Get comments
+- `POST /api/v1/posts` - Create post (with location)
+- `GET /api/v1/posts/:id` - Get single post
+- `DELETE /api/v1/posts/:id` - Delete post
+- `POST /api/v1/posts/:id/like` - Like post
+- `DELETE /api/v1/posts/:id/like` - Unlike post
+- `POST /api/v1/posts/:id/toggle-like` - Toggle like (idempotent)
+- `POST /api/v1/posts/:id/comments` - Add comment
+- `GET /api/v1/posts/:id/comments` - Get comments
 
 **Comments**
-- `POST /comments/:id/reply` - Reply to comment (max depth: 3)
-- `POST /comments/:id/like` - Like comment
-- `DELETE /comments/:id/like` - Unlike comment
-- `DELETE /comments/:id` - Delete own comment
+- `POST /api/v1/comments/:id/reply` - Reply to comment (max depth: 3)
+- `GET /api/v1/comments/:id/replies` - Get replies
+- `PUT /api/v1/comments/:id` - Edit comment
+- `DELETE /api/v1/comments/:id` - Delete own comment
+- `POST /api/v1/comments/:id/like` - Like comment
+- `DELETE /api/v1/comments/:id/like` - Unlike comment
+- `POST /api/v1/comments/:id/toggle-like` - Toggle like (idempotent)
 
 **Locations**
-- `POST /locations/follow` - Follow a geographic area
-- `DELETE /locations/:geohash/follow` - Unfollow area
-- `GET /locations/following` - Get followed locations
+- `POST /api/v1/locations/follow` - Follow a geographic area
+- `DELETE /api/v1/locations/:geohash/follow` - Unfollow area
+- `GET /api/v1/locations/following` - Get followed locations
 
 **Notifications**
-- `GET /notifications` - Get all notifications
-- `PUT /notifications/:id/read` - Mark as read
-- `PUT /notifications/read-all` - Mark all as read
+- `GET /api/v1/notifications` - Get all notifications
+- `GET /api/v1/notifications/stream` - SSE real-time stream
+- `GET /api/v1/notifications/unread-count` - Get unread count
+- `PUT /api/v1/notifications/:id/read` - Mark as read
+- `PUT /api/v1/notifications/read-all` - Mark all as read
+- `DELETE /api/v1/notifications/:id` - Delete notification
 
 **Search**
-- `GET /search/users?q=` - Search users
-- `GET /search/posts?q=` - Search posts
+- `GET /api/v1/search/users?q=` - Search users
+- `GET /api/v1/search/posts?q=` - Search posts
 
 **Upload**
-- `POST /upload/avatar` - Upload avatar (max 5MB, multipart/form-data)
-- `POST /upload/post` - Upload post media (max 50MB, multipart/form-data)
+- `POST /api/v1/upload/avatar` - Upload avatar (max 5MB, multipart/form-data)
+- `POST /api/v1/upload/post` - Upload post media (max 50MB, multipart/form-data)
 
 **Devices (Push Notifications)**
-- `POST /devices` - Register push token
-- `DELETE /devices` - Unregister push token
+- `POST /api/v1/devices` - Register push token
+- `DELETE /api/v1/devices` - Unregister push token
+
+**Content Moderation**
+- `POST /api/v1/reports` - Report content (post/comment/user)
 
 ---
 

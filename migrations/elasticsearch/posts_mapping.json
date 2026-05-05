@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "post_analyzer": {
+          "tokenizer": "standard",
+          "filter": ["lowercase", "post_ngram"]
+        },
+        "hashtag_analyzer": {
+          "tokenizer": "keyword",
+          "filter": ["lowercase", "post_ngram"]
+        }
+      },
+      "filter": {
+        "post_ngram": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      }
+    }
+  },
+  "mappings": {
+    "dynamic": false,
+    "properties": {
+      "post_id":    { "type": "keyword" },
+      "user_id":    { "type": "keyword" },
+      "content":    { "type": "text", "analyzer": "post_analyzer", "search_analyzer": "standard" },
+      "hashtags":   { "type": "keyword" },
+      "location":   { "type": "geo_point" },
+      "geohash":    { "type": "keyword" },
+      "created_at": { "type": "date" },
+      "like_count": { "type": "integer" }
+    }
+  }
+}

@@ -25,6 +25,13 @@ graph TD
         API2 -->|Produce/Consume| Kafka
         
         Kafka -->|FCM API| FCM[Firebase Cloud Messaging]
+
+        API1 -->|HTTP| ES[(Elasticsearch)]
+        API2 -->|HTTP| ES
+        
+        Indexer[Search Indexer] -->|Consume: posts.created| Kafka
+        Indexer -->|Index| ES
+        Indexer -->|ZADD| Redis
     end
     
     subgraph Data Models [Cassandra Denormalized Tables]
@@ -40,6 +47,7 @@ graph TD
         Redis -.->|Rate Limiting| R1(Rate Limits)
         Redis -.->|Counters| R2(Atomic Like Counters)
         Redis -.->|Pub/Sub| R3(SSE Real-time Streams)
+        Redis -.->|Autocomplete| R4(users:autocomplete)
     end
 ```
 
@@ -51,16 +59,23 @@ graph TD
 - 🔔 **Event-Driven Notifications**: Asynchronous background dispatch of notifications using Kafka topics.
 - 🔴 **Real-time SSE Streams**: Live push of notifications to connected clients via Redis Pub/Sub & Server-Sent Events.
 - 📲 **Push Notifications**: Firebase Cloud Messaging (FCM) integration with persistent retry queues.
+- � **Full-Text Search**: Elasticsearch-powered search across posts and users with fuzzy matching and typo tolerance.
+- 📍 **Proximity Search**: Geo-filtered search with distance-based ranking using Haversine scoring.
+- ⚡ **Autocomplete**: Real-time username suggestions from Redis sorted sets (`ZRANGEBYLEX`).
+- #️⃣ **Hashtag Autocomplete**: Edge n-gram prefix queries on Elasticsearch with aggregation-based popularity ranking.
+- 🧠 **Smart Ranking**: Weighted scoring formula combining ES relevance (50%), recency (30%), and proximity (20%).
+- ⚙️ **Kafka-Driven Indexing**: Standalone `search-indexer` worker consuming `posts.created` topic — decoupled, scalable.
 - 🔒 **Security First**: Bcrypt password hashing, JWT authentication (no default secrets), strict CORS, and brute-force protection.
 - 🛡️ **Content Moderation**: Built-in user reporting, blocking, and muting system.
 - 🗑️ **GDPR Compliant**: Full soft-deletion support with PII anonymization.
-- 🚀 **Production Ready**: Multi-stage Dockerfile, CI/CD pipeline, and environment separation.
+- 🚀 **Production Ready**: Multi-stage Dockerfiles, CI/CD pipeline, and environment separation.
 
 ## 🛠 Tech Stack
 
 - **Language**: Go 1.24+
 - **Web Framework**: Gin
 - **Database**: Apache Cassandra (gocql driver)
+- **Search Engine**: Elasticsearch (raw HTTP client)
 - **Message Broker**: Apache Kafka (segmentio/kafka-go)
 - **Cache & Pub/Sub**: Redis (go-redis)
 - **Push Delivery**: Firebase Cloud Messaging (FCM)
@@ -87,6 +102,8 @@ This starts:
 - Apache Cassandra (`geoloc_cassandra`)
 - Redis (`geoloc_redis`)
 - Apache Kafka & Kafka UI (`kafka`, `kafka-ui`)
+- Elasticsearch (`geoloc_elasticsearch`)
+- Search Indexer worker (`geoloc_search_indexer`)
 
 ### 2. Apply Cassandra Migrations
 
@@ -117,6 +134,11 @@ Copy `.env.development` to `.env` to configure your environment:
 | `REDIS_HOST` | `localhost` | Redis host |
 | `JWT_SECRET` | (required) | Secret key for signing JWTs |
 | `ALLOWED_ORIGINS`| `http://localhost:3000` | CORS allowed origins |
+| `ELASTICSEARCH_URL` | `http://localhost:9200` | Elasticsearch HTTP endpoint |
+| `ELASTICSEARCH_INDEX_POSTS` | `posts` | ES index name for posts |
+| `ELASTICSEARCH_INDEX_USERS` | `users` | ES index name for users |
+| `SEARCH_MAX_RESULTS` | `20` | Max results per search query |
+| `SEARCH_DEFAULT_RADIUS_KM` | `5` | Default proximity search radius |
 
 ## 🧪 Development
 

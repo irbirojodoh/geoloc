@@ -241,7 +241,12 @@ func (r *PostRepository) SearchPosts(ctx context.Context, query string, limit in
 		limit = 20
 	}
 
-	searchPattern := "%" + strings.ToLower(query) + "%"
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	if normalizedQuery == "" {
+		return nil, nil
+	}
+
+	searchPattern := "%" + normalizedQuery + "%"
 
 	iter := r.session.Query(`
 		SELECT post_id, user_id, content, media_urls, latitude, longitude, geohash, created_at
@@ -269,7 +274,60 @@ func (r *PostRepository) SearchPosts(ctx context.Context, query string, limit in
 		}
 	}
 
-	iter.Close()
+	if err := iter.Close(); err != nil {
+		if len(posts) == 0 {
+			return r.searchPostsByScan(ctx, normalizedQuery, limit)
+		}
+		return posts, nil
+	}
+
+	if len(posts) > 0 {
+		return posts, nil
+	}
+
+	return r.searchPostsByScan(ctx, normalizedQuery, limit)
+}
+
+func (r *PostRepository) searchPostsByScan(ctx context.Context, query string, limit int) ([]Post, error) {
+	scanLimit := limit * 20
+	if scanLimit < 100 {
+		scanLimit = 100
+	}
+	if scanLimit > 1000 {
+		scanLimit = 1000
+	}
+
+	iter := r.session.Query(`
+		SELECT post_id, user_id, content, media_urls, latitude, longitude, geohash, created_at
+		FROM posts_by_id
+		LIMIT ?
+	`, scanLimit).WithContext(ctx).Iter()
+
+	var posts []Post
+	var post Post
+	var postID, userID gocql.UUID
+	var mediaURLs []string
+
+	for iter.Scan(&postID, &userID, &post.Content, &mediaURLs,
+		&post.Latitude, &post.Longitude, &post.Geohash, &post.CreatedAt) {
+		if strings.Contains(strings.ToLower(post.Content), query) {
+			post.ID = postID.String()
+			post.UserID = userID.String()
+			post.MediaURLs = mediaURLs
+			posts = append(posts, post)
+		}
+
+		post = Post{}
+		mediaURLs = nil
+		if len(posts) >= limit {
+			break
+		}
+	}
+
+	if err := iter.Close(); err != nil {
+		return nil, fmt.Errorf("search posts fallback scan failed: %w", err)
+	}
+
 	return posts, nil
 }
 

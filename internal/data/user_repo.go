@@ -310,8 +310,13 @@ func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit in
 		limit = 20
 	}
 
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	if normalizedQuery == "" {
+		return nil, nil
+	}
+
 	// Normalize query for LIKE prefix matching
-	searchPattern := strings.ToLower(query) + "%"
+	searchPattern := normalizedQuery + "%"
 
 	// Search by username (prefix match via SAI)
 	usernameIter := r.session.Query(`
@@ -345,7 +350,9 @@ func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit in
 			break
 		}
 	}
-	usernameIter.Close()
+	if err := usernameIter.Close(); err != nil && len(users) == 0 {
+		slog.Warn("username search query failed, falling back to scan", "error", err, "query", query)
+	}
 
 	// If we haven't hit the limit, also search by full_name
 	if len(users) < limit {
@@ -375,7 +382,54 @@ func (r *UserRepository) SearchUsers(ctx context.Context, query string, limit in
 				break
 			}
 		}
-		nameIter.Close()
+		if err := nameIter.Close(); err != nil && len(users) == 0 {
+			slog.Warn("full_name search query failed, falling back to scan", "error", err, "query", query)
+		}
+	}
+
+	if len(users) > 0 {
+		return users, nil
+	}
+
+	return r.searchUsersByScan(ctx, normalizedQuery, limit)
+}
+
+func (r *UserRepository) searchUsersByScan(ctx context.Context, query string, limit int) ([]User, error) {
+	scanLimit := limit * 20
+	if scanLimit < 100 {
+		scanLimit = 100
+	}
+	if scanLimit > 1000 {
+		scanLimit = 1000
+	}
+
+	iter := r.session.Query(`
+		SELECT id, username, email, full_name, bio, profile_picture_url, created_at, updated_at
+		FROM users
+		LIMIT ?
+	`, scanLimit).WithContext(ctx).Iter()
+
+	var users []User
+	var user User
+	var id gocql.UUID
+	for iter.Scan(&id, &user.Username, &user.Email, &user.FullName,
+		&user.Bio, &user.ProfilePictureURL, &user.CreatedAt, &user.UpdatedAt) {
+		if strings.Contains(strings.ToLower(user.Username), query) || strings.Contains(strings.ToLower(user.FullName), query) {
+			user.ID = id.String()
+			if user.CoverImageURL == "" {
+				user.CoverImageURL = DefaultCoverImageURL
+			}
+			if !user.IsDeleted {
+				users = append(users, user)
+			}
+		}
+		user = User{}
+		if len(users) >= limit {
+			break
+		}
+	}
+	if err := iter.Close(); err != nil {
+		return nil, fmt.Errorf("search users fallback scan failed: %w", err)
 	}
 
 	return users, nil
@@ -418,16 +472,16 @@ func (r *UserRepository) SoftDeleteUser(ctx context.Context, userID string) erro
 			updated_at = ?
 		WHERE id = ?
 	`,
-		"deleted_"+prefix,              // anonymized username
+		"deleted_"+prefix,                  // anonymized username
 		"deleted_"+userID+"@deleted.local", // anonymized email
-		"Deleted User",                  // anonymized name
-		"",                              // clear bio
-		"",                              // clear phone
-		"",                              // clear avatar
-		"",                              // disable password login
-		true,                            // mark as deleted
-		now,                             // deletion timestamp
-		now,                             // updated_at
+		"Deleted User",                     // anonymized name
+		"",                                 // clear bio
+		"",                                 // clear phone
+		"",                                 // clear avatar
+		"",                                 // disable password login
+		true,                               // mark as deleted
+		now,                                // deletion timestamp
+		now,                                // updated_at
 		uid,
 	).WithContext(ctx).Exec()
 

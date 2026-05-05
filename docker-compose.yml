@@ -88,6 +88,10 @@ services:
         condition: service_healthy
     volumes:
       - ./migrations/cassandra_schema.cql:/schema/cassandra_schema.cql:ro
+      - ./migrations/003_mvp_features.cql:/schema/003_mvp_features.cql:ro
+      - ./migrations/004_like_comment_v3.cql:/schema/004_like_comment_v3.cql:ro
+      - ./migrations/005_search_indexes.cql:/schema/005_search_indexes.cql:ro
+      - ./migrations/006_notifications_v2.cql:/schema/006_notifications_v2.cql:ro
       - ./migrations/mock_data.cql:/schema/mock_data.cql:ro
     entrypoint:
       - /bin/sh
@@ -97,6 +101,14 @@ services:
         until cqlsh cassandra-1 -e "DESCRIBE CLUSTER"; do sleep 5; done
         echo "Applying Cassandra schema..."
         cqlsh cassandra-1 -f /schema/cassandra_schema.cql
+        echo "Applying migration: 003_mvp_features..."
+        cqlsh cassandra-1 -f /schema/003_mvp_features.cql || true
+        echo "Applying migration: 004_like_comment_v3..."
+        cqlsh cassandra-1 -f /schema/004_like_comment_v3.cql || true
+        echo "Applying migration: 005_search_indexes..."
+        cqlsh cassandra-1 -f /schema/005_search_indexes.cql || true
+        echo "Applying migration: 006_notifications_v2..."
+        cqlsh cassandra-1 -f /schema/006_notifications_v2.cql || true
         echo "Applying optional mock data (idempotent)..."
         cqlsh cassandra-1 -f /schema/mock_data.cql || true
         echo "Cassandra initialization complete."
@@ -216,6 +228,52 @@ services:
     profiles:
       - app
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: geoloc_elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/var/lib/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    profiles:
+      - dev
+      - app
+
+  search-indexer:
+    build:
+      context: .
+      dockerfile: cmd/indexer/Dockerfile
+    container_name: geoloc_search_indexer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      APP_ENV: development
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_INDEX_POSTS: posts
+      ELASTICSEARCH_INDEX_USERS: users
+      KAFKA_BROKERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    restart: unless-stopped
+    profiles:
+      - app
+
   caddy:
     image: caddy:2-alpine
     container_name: geoloc-caddy
@@ -241,3 +299,5 @@ volumes:
   caddy_data:
   caddy_config:
   kafka_data:
+  esdata:
+    driver: local

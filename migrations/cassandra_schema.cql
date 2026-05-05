@@ -22,9 +22,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Storage-Attached Indexes (SAI) for scalable search without ALLOW FILTERING
-CREATE CUSTOM INDEX IF NOT EXISTS username_sai_idx ON users (username) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
-CREATE CUSTOM INDEX IF NOT EXISTS email_sai_idx ON users (email) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
-CREATE CUSTOM INDEX IF NOT EXISTS fullname_sai_idx ON users (full_name) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false'};
+-- normalize=true is REQUIRED for SAI LIKE (prefix/contains) matching
+-- Drop first so existing indexes get the new options on re-init
+DROP INDEX IF EXISTS username_sai_idx;
+DROP INDEX IF EXISTS email_sai_idx;
+DROP INDEX IF EXISTS fullname_sai_idx;
+CREATE CUSTOM INDEX username_sai_idx ON users (username) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
+CREATE CUSTOM INDEX email_sai_idx ON users (email) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
+CREATE CUSTOM INDEX fullname_sai_idx ON users (full_name) USING 'StorageAttachedIndex' WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
 
 -- Posts by geohash (for proximity queries)
 -- Partition by geohash prefix (5-char = ~5km precision)
@@ -56,6 +61,13 @@ CREATE TABLE IF NOT EXISTS posts_by_id (
     user_agent TEXT,
     created_at TIMESTAMP
 );
+
+-- SAI index on posts_by_id.content for content search (LIKE prefix/contains matching)
+DROP INDEX IF EXISTS post_content_sai_idx;
+CREATE CUSTOM INDEX post_content_sai_idx 
+  ON posts_by_id (content) 
+  USING 'StorageAttachedIndex' 
+  WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};
 
 -- Posts by user (for user profiles)
 CREATE TABLE IF NOT EXISTS posts_by_user (

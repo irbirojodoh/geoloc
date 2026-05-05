@@ -28,6 +28,7 @@ import (
 	"social-geo-go/internal/notifications/kafka"
 	"social-geo-go/internal/notifications/sse"
 	"social-geo-go/internal/push"
+	"social-geo-go/internal/search"
 	"social-geo-go/internal/storage"
 
 	"github.com/lmittmann/tint"
@@ -63,7 +64,7 @@ func main() {
 		// Cassandra connection config must be recreated per attempt
 		// as gocql modifies the HostSelectionPolicy internally during CreateSession
 		cluster := gocql.NewCluster(getEnv("CASSANDRA_HOST", "localhost"))
-		
+
 		// Parse port from env or default to 9042
 		portStr := getEnv("CASSANDRA_PORT", "9042")
 		port, errPort := strconv.Atoi(portStr)
@@ -71,7 +72,7 @@ func main() {
 			log.Fatalf("Invalid CASSANDRA_PORT: %s", portStr)
 		}
 		cluster.Port = port
-		
+
 		cluster.Keyspace = getEnv("CASSANDRA_KEYSPACE", "geoloc")
 		cluster.Consistency = gocql.Quorum
 		cluster.Timeout = 10 * time.Second
@@ -124,13 +125,13 @@ func main() {
 	commentRepo := data.NewCommentRepository(session, commentCounter)
 	followRepo := data.NewFollowRepository(session)
 	locFollowRepo := data.NewLocationFollowRepository(session)
-	
+
 	var rawRedisClient *redis.Client
 	if redisClient != nil {
 		rawRedisClient = redisClient.Client()
 	}
 	notifRepo := data.NewNotificationRepository(session, rawRedisClient)
-	
+
 	// Initialize Notification Producer & Dispatcher
 	var notifProducer kafka.NotificationEventProducer
 	if os.Getenv("KAFKA_NOTIFICATIONS_ENABLED") == "true" {
@@ -142,10 +143,15 @@ func main() {
 		}
 	}
 	notifDispatcher := notifications.NewDispatcher(notifProducer, notifRepo, rawRedisClient)
-	
+
 	locRepo := data.NewLocationRepository(session, geoClient)
 	resetRepo := data.NewPasswordResetRepository(session)
 	modRepo := data.NewModerationRepository(session)
+
+	// Initialize Elasticsearch and search service
+	esClient := search.NewESClient()
+	searchSvc := search.NewService(esClient, rawRedisClient)
+	searchHandler := handlers.NewNewSearchHandler(searchSvc, session)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -293,9 +299,14 @@ func main() {
 		api.PUT("/notifications/read-all", handlers.MarkAllNotificationsAsRead(notifRepo))
 		api.DELETE("/notifications/:id", handlers.DeleteNotification(notifRepo))
 
-		// Search routes
+		// Search routes (legacy Cassandra-backed)
 		api.GET("/search/users", handlers.SearchUsers(userRepo))
 		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo))
+
+		// Search routes (Elasticsearch-backed)
+		api.GET("/v1/search", searchHandler.SearchHandler)
+		api.GET("/v1/search/nearby", searchHandler.SearchNearbyHandler)
+		api.GET("/v1/autocomplete", searchHandler.AutocompleteHandler)
 
 		// Upload routes
 		api.POST("/upload/avatar", handlers.UploadAvatar(store))
@@ -319,12 +330,12 @@ func main() {
 		if prefix == "" {
 			prefix = "geoloc"
 		}
-		
+
 		if len(brokers) > 0 && brokers[0] != "" {
 			persisterHandler := kafka.NewPersisterHandler(notifRepo, rawRedisClient, modRepo, deviceRepo, notifProducer)
 			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-persister", "notification.events", persisterHandler.Handle)
 			log.Println("Started notif-persister consumer group")
-			
+
 			if rawRedisClient != nil {
 				sseHandler := kafka.NewSSEFanoutHandler(rawRedisClient)
 				go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-sse-fanout", "notification.events", sseHandler.Handle)
