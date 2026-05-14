@@ -60,14 +60,38 @@ docker exec geoloc_cassandra-1 cqlsh -f /tmp/seed_test_data.cql
 Run API locally with Docker services:
 
 ```bash
-# Start infrastructure (Cassandra, Redis, Kafka, Elasticsearch)
-docker compose up -d cassandra-1 redis kafka elasticsearch
+# Start infrastructure (uses dev profile)
+docker compose --profile dev up -d
 
-# Run API with live reload
-go run cmd/api/main.go
+# Configure .env.development — see docs/environment.md
+# Minimum for search:
+#   KAFKA_BROKERS=127.0.0.1:9092
+#   ELASTICSEARCH_URL=http://localhost:9200
 
-# Run search indexer (in a separate terminal)
+# Run search indexer (separate terminal — required for new post indexing)
 go run cmd/indexer/main.go
+
+# Backfill posts created before indexing was enabled (one-off)
+go run cmd/backfill-search/main.go
+
+# Run API
+go run cmd/api/main.go
+```
+
+### Compose profiles
+
+| Profile | Services |
+|---------|----------|
+| `dev` | Cassandra cluster, Redis, Kafka, Kafka UI, Elasticsearch |
+| `app` | Above + `api`, `search-indexer` (containerized) |
+| `with-proxy` | Adds Caddy reverse proxy |
+
+```bash
+# Infrastructure only (local go run workflow)
+docker compose --profile dev up -d
+
+# Full stack in containers
+docker compose --profile app up -d
 ```
 
 ## Data Persistence
@@ -98,9 +122,14 @@ api:
     - CASSANDRA_KEYSPACE=geoloc
     - REDIS_HOST=redis
     - KAFKA_BROKERS=kafka:29092
+    - KAFKA_NOTIFICATIONS_ENABLED=true
     - JWT_SECRET=your-secret-key
     - ELASTICSEARCH_URL=http://elasticsearch:9200
+    - ELASTICSEARCH_INDEX_POSTS=posts
+    - ELASTICSEARCH_INDEX_USERS=users
 ```
+
+When running the API on the host (`go run cmd/api/main.go`), use `127.0.0.1:9092` for `KAFKA_BROKERS` and `http://localhost:9200` for `ELASTICSEARCH_URL` instead.
 
 The search-indexer also reads:
 
@@ -126,4 +155,7 @@ curl http://localhost:9200/_cluster/health
 
 # Kafka topics
 docker compose exec kafka kafka-topics --bootstrap-server localhost:29092 --list
+
+# posts.created offsets (should increase when new posts are created)
+docker compose exec kafka kafka-get-offsets --bootstrap-server localhost:29092 --topic posts.created
 ```

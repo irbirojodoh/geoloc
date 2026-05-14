@@ -1,5 +1,4 @@
 package search
-package search
 
 import (
 	"bytes"

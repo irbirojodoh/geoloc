@@ -22,9 +22,21 @@ func truncateText(s string, max int) string {
 	return s
 }
 
-// ToggleLikeRequest represents a toggle like request body
+// ToggleLikeRequest represents a toggle like request body.
+// If "like" is omitted, the current state is flipped (true toggle).
 type ToggleLikeRequest struct {
-	Like bool `json:"like"` // true = like, false = unlike
+	Like *bool `json:"like"` // true = like, false = unlike, omitted = toggle
+}
+
+func resolveWantLiked(ctx context.Context, likeRepo *data.LikeRepository, targetType, targetID, userID string, explicit *bool) (bool, error) {
+	if explicit != nil {
+		return *explicit, nil
+	}
+	liked, err := likeRepo.HasUserLiked(ctx, targetType, targetID, userID)
+	if err != nil {
+		return false, err
+	}
+	return !liked, nil
 }
 
 // TogglePostLike handles POST /api/v1/posts/:id/toggle-like
@@ -40,14 +52,17 @@ func TogglePostLike(likeRepo *data.LikeRepository, postRepo *data.PostRepository
 		}
 
 		var req ToggleLikeRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			// Default to like if no body provided
-			req.Like = true
+		_ = c.ShouldBindJSON(&req)
+
+		wantLiked, err := resolveWantLiked(c.Request.Context(), likeRepo, data.TargetTypePost, postID, userID, req.Like)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read like state"})
+			return
 		}
 
-		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, req.Like)
+		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypePost, postID, userID, wantLiked)
 		if err != nil {
-			slog.Error("TogglePostLike failed", "error", err, "post_id", postID, "user_id", userID, "want_liked", req.Like)
+			slog.Error("TogglePostLike failed", "error", err, "post_id", postID, "user_id", userID, "want_liked", wantLiked)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to toggle like",
 			})
@@ -92,13 +107,17 @@ func ToggleCommentLike(likeRepo *data.LikeRepository, commentRepo *data.CommentR
 		}
 
 		var req ToggleLikeRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			req.Like = true
+		_ = c.ShouldBindJSON(&req)
+
+		wantLiked, err := resolveWantLiked(c.Request.Context(), likeRepo, data.TargetTypeComment, commentID, userID, req.Like)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read like state"})
+			return
 		}
 
-		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, req.Like)
+		result, err := likeRepo.ToggleLike(c.Request.Context(), data.TargetTypeComment, commentID, userID, wantLiked)
 		if err != nil {
-			slog.Error("ToggleCommentLike failed", "error", err, "comment_id", commentID, "user_id", userID, "want_liked", req.Like)
+			slog.Error("ToggleCommentLike failed", "error", err, "comment_id", commentID, "user_id", userID, "want_liked", wantLiked)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to toggle like",
 			})

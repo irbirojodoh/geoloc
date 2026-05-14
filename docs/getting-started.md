@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Geoloc running locally in under 5 minutes.
+Get Geoloc running locally in under 10 minutes.
 
 ## Prerequisites
 
@@ -13,25 +13,49 @@ Get Geoloc running locally in under 5 minutes.
 ```bash
 git clone <repository-url>
 cd geoloc
-
-# Copy environment file
-cp .env.example .env
 ```
 
-## 2. Start Database
+Environment files are loaded from `.env.development` by default (see [Environment Configuration](./environment.md)).
+
+## 2. Start Infrastructure
 
 ```bash
-docker-compose up -d cassandra
+docker compose --profile dev up -d
 ```
 
-Wait ~30 seconds for Cassandra to initialize, then apply the schema:
+This starts Cassandra (3-node cluster), Redis, Kafka, Elasticsearch, and Kafka UI.
+
+Wait until core services are healthy:
 
 ```bash
-docker cp migrations/cassandra_schema.cql geoloc_cassandra:/tmp/
-docker exec geoloc_cassandra cqlsh -f /tmp/cassandra_schema.cql
+docker ps
 ```
 
-## 3. Run the API
+Schema is applied automatically by the `cassandra-db-init` service on first boot.
+
+## 3. Configure Search (recommended)
+
+Add to `.env.development`:
+
+```env
+KAFKA_BROKERS=127.0.0.1:9092
+KAFKA_NOTIFICATIONS_ENABLED=true
+ELASTICSEARCH_URL=http://localhost:9200
+ELASTICSEARCH_INDEX_POSTS=posts
+ELASTICSEARCH_INDEX_USERS=users
+```
+
+## 4. Run the Search Indexer
+
+In a **separate terminal**:
+
+```bash
+go run cmd/indexer/main.go
+```
+
+Leave this running so new posts are indexed into Elasticsearch.
+
+## 5. Run the API
 
 ```bash
 go run cmd/api/main.go
@@ -39,7 +63,17 @@ go run cmd/api/main.go
 
 The API will be available at `http://localhost:8080`.
 
-## 4. Verify
+You should see `Kafka Search Indexer Producer enabled` when `KAFKA_BROKERS` is set.
+
+## 6. Backfill Existing Posts (optional)
+
+If you have posts in Cassandra from before search indexing was enabled:
+
+```bash
+go run cmd/backfill-search/main.go
+```
+
+## 7. Verify
 
 ```bash
 # Health check
@@ -54,13 +88,9 @@ curl -X POST http://localhost:8080/auth/register \
     "password": "password123",
     "full_name": "Test User"
   }'
-```
 
-## 5. Optional: Seed Test Data
-
-```bash
-docker cp migrations/seed_test_data.cql geoloc_cassandra:/tmp/
-docker exec geoloc_cassandra cqlsh -f /tmp/seed_test_data.cql
+# Elasticsearch post count (after backfill or new posts)
+curl -s http://localhost:9200/posts/_count
 ```
 
 ---
@@ -68,5 +98,7 @@ docker exec geoloc_cassandra cqlsh -f /tmp/seed_test_data.cql
 ## Next Steps
 
 - [Environment Configuration](./environment.md) - Configure environment variables
+- [Search API](./api/search.md) - Elasticsearch search and indexing pipeline
 - [API Overview](./api/README.md) - Learn about the API
+- [Docker Deployment](./deployment/docker.md) - Full Docker Compose reference
 - [Flutter Client Guide](./client/flutter.md) - Build the mobile app

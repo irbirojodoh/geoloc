@@ -144,6 +144,16 @@ func main() {
 	}
 	notifDispatcher := notifications.NewDispatcher(notifProducer, notifRepo, rawRedisClient)
 
+	var postIndexer search.PostIndexer
+	if brokersStr := os.Getenv("KAFKA_BROKERS"); brokersStr != "" {
+		brokers := strings.Split(brokersStr, ",")
+		if len(brokers) > 0 && brokers[0] != "" {
+			postIndexer = search.NewPostIndexer(brokers)
+			defer postIndexer.Close()
+			log.Println("Kafka Search Indexer Producer enabled")
+		}
+	}
+
 	locRepo := data.NewLocationRepository(session, geoClient)
 	resetRepo := data.NewPasswordResetRepository(session)
 	modRepo := data.NewModerationRepository(session)
@@ -264,7 +274,7 @@ func main() {
 		api.GET("/users/me/muted", handlers.GetMutedUsers(modRepo))
 
 		// Post routes
-		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher))
+		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, postIndexer))
 		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
 		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 
@@ -304,9 +314,9 @@ func main() {
 		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo))
 
 		// Search routes (Elasticsearch-backed)
-		api.GET("/v1/search", searchHandler.SearchHandler)
-		api.GET("/v1/search/nearby", searchHandler.SearchNearbyHandler)
-		api.GET("/v1/autocomplete", searchHandler.AutocompleteHandler)
+		api.GET("/search/nearby", searchHandler.SearchNearbyHandler)
+		api.GET("/search", searchHandler.SearchHandler)
+		api.GET("/autocomplete", searchHandler.AutocompleteHandler)
 
 		// Upload routes
 		api.POST("/upload/avatar", handlers.UploadAvatar(store))

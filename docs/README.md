@@ -16,7 +16,7 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 - [Users](./api/users.md) - User profiles and follows
 - [Comments](./api/comments.md) - Nested comments system
 - [Notifications](./api/notifications.md) - In-app notifications
-- [Search](./api/search.md) - Search users and posts
+- [Search](./api/search.md) - Elasticsearch search, indexing pipeline, and backfill
 
 ### Architecture
 - [System Overview](./architecture/overview.md) - High-level architecture

@@ -20,49 +20,7 @@ import (
 	"social-geo-go/internal/search"
 )
 
-// PostCreatedEvent is the event emitted by the API when a new post is created.
-type PostCreatedEvent struct {
-	PostID    string    `json:"post_id"`
-	UserID    string    `json:"user_id"`
-	Username  string    `json:"username"`
-	Content   string    `json:"content"`
-	Hashtags  []string  `json:"hashtags"`
-	Lat       float64   `json:"lat"`
-	Lon       float64   `json:"lon"`
-	Geohash   string    `json:"geohash"`
-	CreatedAt time.Time `json:"created_at"`
-	LikeCount int       `json:"like_count"`
-}
-
-// ESUserDocument is the user document stored in Elasticsearch.
-type ESUserDocument struct {
-	UserID        string `json:"user_id"`
-	Username      string `json:"username"`
-	DisplayName   string `json:"display_name"`
-	FollowerCount int    `json:"follower_count"`
-	IsVerified    bool   `json:"is_verified"`
-	AvatarURL     string `json:"avatar_url"`
-}
-
-// ESPostDocument is the post document stored in Elasticsearch.
-type ESPostDocument struct {
-	PostID    string    `json:"post_id"`
-	UserID    string    `json:"user_id"`
-	Content   string    `json:"content"`
-	Hashtags  []string  `json:"hashtags"`
-	Location  geoPoint  `json:"location,omitempty"`
-	Geohash   string    `json:"geohash"`
-	CreatedAt time.Time `json:"created_at"`
-	LikeCount int       `json:"like_count"`
-}
-
-type geoPoint struct {
-	Lat float64 `json:"lat"`
-	Lon float64 `json:"lon"`
-}
-
 func main() {
-	// Load environment
 	appEnv := os.Getenv("APP_ENV")
 	if appEnv == "" {
 		appEnv = "development"
@@ -82,7 +40,6 @@ func main() {
 
 	slog.Info("starting search indexer", "APP_ENV", appEnv)
 
-	// Configuration
 	brokersStr := os.Getenv("KAFKA_BROKERS")
 	if brokersStr == "" {
 		brokersStr = "localhost:9092"
@@ -111,10 +68,8 @@ func main() {
 		usersIndex = "users"
 	}
 
-	// Initialize ES client
 	esClient := search.NewESClient()
 
-	// Initialize Redis
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		DialTimeout:  5 * time.Second,
@@ -125,18 +80,15 @@ func main() {
 	})
 	defer rdb.Close()
 
-	// Verify Redis connectivity
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		slog.Warn("redis unavailable, autocomplete sync will be disabled", "error", err)
 	}
 
-	// Ensure ES indexes exist on startup (idempotent)
 	ctx := context.Background()
 	if err := search.EnsureESIndexes(ctx, esURL, postsIndex, usersIndex); err != nil {
 		slog.Error("failed to ensure ES indexes, continuing anyway", "error", err)
 	}
 
-	// Start Kafka consumer
 	groupID := "search-indexer"
 	topic := "posts.created"
 
@@ -146,10 +98,10 @@ func main() {
 		Brokers:        brokers,
 		GroupID:        groupID,
 		Topic:          topic,
-		MinBytes:       1e3,  // 1KB
-		MaxBytes:       10e6, // 10MB
-		MaxWait:        500 * time.Millisecond,
-		CommitInterval: 0, // manual commit
+		MinBytes:       1,
+		MaxBytes:       10e6,
+		MaxWait:        1 * time.Second,
+		CommitInterval: 0,
 		ErrorLogger: kafkago.LoggerFunc(func(msg string, args ...interface{}) {
 			slog.Error("kafka reader error", "msg", msg, "args", args)
 		}),
@@ -185,12 +137,10 @@ func main() {
 				"offset", msg.Offset,
 				"error", err,
 			)
-			// Don't commit — message will be reprocessed after rebalance
 			backoffSleep(ctx)
 			continue
 		}
 
-		// Commit only after successful processing
 		if err := reader.CommitMessages(ctx, msg); err != nil {
 			slog.Error("failed to commit message", "error", err)
 		}
@@ -198,7 +148,7 @@ func main() {
 }
 
 func processMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.Client, msg kafkago.Message, postsIndex string) error {
-	var event PostCreatedEvent
+	var event search.PostCreatedEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		return fmt.Errorf("unmarshal event: %w", err)
 	}
@@ -210,28 +160,12 @@ func processMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.C
 		"content_length", len(event.Content),
 	)
 
-	// Build ES document
-	doc := ESPostDocument{
-		PostID:    event.PostID,
-		UserID:    event.UserID,
-		Content:   event.Content,
-		Hashtags:  event.Hashtags,
-		Geohash:   event.Geohash,
-		CreatedAt: event.CreatedAt,
-		LikeCount: event.LikeCount,
-	}
+	doc := search.PostDocumentFromEvent(event)
 
-	// Set location if coordinates are present
-	if event.Lat != 0 || event.Lon != 0 {
-		doc.Location = geoPoint{Lat: event.Lat, Lon: event.Lon}
-	}
-
-	// Index into ES (idempotent — uses post_id as _id)
 	if err := esClient.IndexDocument(ctx, postsIndex, event.PostID, doc); err != nil {
 		return fmt.Errorf("index document: %w", err)
 	}
 
-	// Sync username to Redis autocomplete sorted set
 	if rdb != nil && event.Username != "" {
 		member := event.Username + "\xff"
 		if err := rdb.ZAdd(ctx, "users:autocomplete", redis.Z{
@@ -252,9 +186,7 @@ func processMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.C
 	return nil
 }
 
-// backoffSleep implements exponential backoff for transient errors.
 func backoffSleep(ctx context.Context) {
-	// Simple fixed backoff — could be made exponential with a counter
 	timer := time.NewTimer(1 * time.Second)
 	defer timer.Stop()
 	select {

@@ -39,7 +39,7 @@ All `/api/v1/*` endpoints require authentication.
 | [Users](./users.md) | `GET /api/v1/users/:id`, `PUT /api/v1/users/me`, etc. |
 | [Comments](./comments.md) | `POST /api/v1/posts/:id/comments`, etc. |
 | [Notifications](./notifications.md) | `GET /api/v1/notifications`, etc. |
-| [Search](./search.md) | `GET /api/v1/search/users`, etc. |
+| [Search](./search.md) | `GET /api/v1/search`, `/api/v1/search/nearby`, `/api/v1/autocomplete`, legacy `/api/v1/search/users` |
 | [Geocode](./geocode.md) | `GET /api/v1/geocode/address` |
 
 ## Response Format

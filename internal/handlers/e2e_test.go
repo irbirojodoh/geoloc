@@ -82,7 +82,7 @@ func setupE2ERouter() *gin.Engine {
 		api.GET("/users/me/muted", GetMutedUsers(modRepo))
 
 		// Posts
-		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher))
+		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher, nil))
 		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo))
 		api.DELETE("/posts/:id", DeletePost(postRepo))
 

@@ -129,7 +129,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"username\": "johndoe_{{$randomInt}}\",\n  \"email\": "john_{{$randomInt}}@example.com\",\n  \"password\": \"securePassword123\",\n  \"full_name\": \"John Doe\",\n  \"phone_number\": \"+6281234567890\"\n}"
+              "raw": "{\n  \"username\": \"johndoe_{{$randomInt}}\",\n  \"email\": \"john_{{$randomInt}}@example.com\",\n  \"password\": \"securePassword123\",\n  \"full_name\": \"John Doe\",\n  \"phone_number\": \"+6281234567890\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",

@@ -30,6 +30,8 @@ Endpoints for creating, reading, and interacting with posts.
 }
 ```
 
+**Search indexing:** When `KAFKA_BROKERS` is configured, the API asynchronously publishes a `posts.created` event to Kafka. The `search-indexer` service indexes the post into Elasticsearch for `/api/v1/search`. See [Search API](./search.md).
+
 ## Get Post
 
 **Endpoint:** `GET /api/v1/posts/:id`

@@ -37,6 +37,8 @@ graph TD
         Kafka -->|notification.events| SSEFanout[SSE Fan-out]
         Kafka -->|notification.push.dispatch| PushDispatch[FCM Push Dispatch]
         Kafka -->|notification.nearby.fanout| NearbyFanout[Nearby Geospatial Fan-out]
+        Kafka -->|posts.created| SearchIndexer[Search Indexer]
+        SearchIndexer --> ES[(Elasticsearch)]
     end
     
     Persister -->|Persist| Cass
@@ -70,7 +72,7 @@ Creating a post triggers a complex set of background events to alert nearby user
 1. **Upload**: Client uploads an image via `/api/v1/upload/post` and receives a URL.
 2. **Creation**: Client sends `POST /api/v1/posts` with the image URL and coordinates.
 3. **Database Write**: Go API writes the post to `posts_by_id`, `posts_by_user`, and `posts_by_geohash` tables in Cassandra.
-4. **Event Dispatch**: The API instantly returns `201 Created` to the client. In the background, it publishes a `NearbyFanoutJob` to Kafka.
+4. **Event Dispatch**: The API instantly returns `201 Created` to the client. In the background, it publishes a `NearbyFanoutJob` to Kafka and a `PostCreatedEvent` to `posts.created` for search indexing (when `KAFKA_BROKERS` is set).
 5. **Nearby Processing**: The `notif-nearby-fanout` Kafka consumer reads the job. It calculates the 9 adjacent geohashes and queries Cassandra (`location_follows` and active users) to find who is tracking that area.
 6. **Individual Alerts**: For every matching user, the consumer produces a distinct `NotificationEvent` back into Kafka.
 

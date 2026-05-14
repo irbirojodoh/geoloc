@@ -77,11 +77,14 @@ High-level overview of the Geoloc system architecture.
 
 ### Post Creation
 
-1. Client uploads media via `/upload/post`
-2. Client creates post with media URLs + coordinates
-3. Server generates geohash
-4. Inserts into 3 Cassandra tables (denormalized)
-5. Returns created post
+1. Client uploads media via `/upload/post` (optional)
+2. Client creates post with content + coordinates
+3. Server generates geohash and inserts into denormalized Cassandra tables
+4. API publishes `posts.created` to Kafka (when `KAFKA_BROKERS` is configured)
+5. `search-indexer` consumes the event and indexes the post in Elasticsearch
+6. Returns created post to client
+
+For posts created before indexing was enabled, run `go run cmd/backfill-search/main.go` once.
 
 ## Scalability
 

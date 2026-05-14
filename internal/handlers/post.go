@@ -15,10 +15,11 @@ import (
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/notifications"
 	"social-geo-go/internal/notifications/kafka"
+	"social-geo-go/internal/search"
 )
 
 // CreatePost handles POST /api/v1/posts
-func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher) gin.HandlerFunc {
+func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher, postIndexer search.PostIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.CreatePostRequest
 
@@ -84,6 +85,33 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 				Content:   contentTruncated,
 				CreatedAt: time.Now().Format(time.RFC3339),
 			})
+		}
+
+		if postIndexer != nil {
+			username := ""
+			if user, err := userRepo.GetUserByID(context.Background(), post.UserID); err == nil && user != nil {
+				username = user.Username
+			}
+			event := &search.PostCreatedEvent{
+				PostID:    post.ID,
+				UserID:    post.UserID,
+				Username:  username,
+				Content:   post.Content,
+				Hashtags:  search.ExtractHashtags(post.Content),
+				Lat:       post.Latitude,
+				Lon:       post.Longitude,
+				Geohash:   post.Geohash,
+				CreatedAt: post.CreatedAt,
+				LikeCount: 0,
+			}
+			go func() {
+				if err := postIndexer.PublishPostCreated(context.Background(), event); err != nil {
+					slog.Warn("failed to publish post created event for search indexing",
+						"post_id", post.ID,
+						"error", err,
+					)
+				}
+			}()
 		}
 
 		c.JSON(http.StatusCreated, gin.H{

@@ -3,7 +3,7 @@
 Geoloc has two search tiers:
 
 1. **Legacy Cassandra-backed search** — basic prefix matching via SAI indexes (`/api/v1/search/users`, `/api/v1/search/posts`)
-2. **Elasticsearch-backed search** — full-text search with fuzzy matching, geo-filtering, and autocomplete (`/api/v1/search`, `/api/v1/search/nearby`, `/v1/autocomplete`)
+2. **Elasticsearch-backed search** — full-text search with fuzzy matching, geo-filtering, and autocomplete (`/api/v1/search`, `/api/v1/search/nearby`, `/api/v1/autocomplete`)
 
 ---
 
@@ -205,16 +205,87 @@ Provides real-time suggestions for usernames (Redis sorted sets) and hashtags (E
 ## Indexing Pipeline
 
 ```
-Post Created ──► Kafka (posts.created) ──► Search Indexer ──► Elasticsearch
-                                              │
-                                              └──► Redis ZADD (username autocomplete)
+Post Created ──► API publishes posts.created ──► Kafka ──► Search Indexer ──► Elasticsearch
+                                                              │
+                                                              └──► Redis ZADD (username autocomplete)
 ```
 
-The `search-indexer` is a standalone Go service that:
+### How posts reach Elasticsearch
+
+| Source | Mechanism |
+|--------|-----------|
+| **New posts** | API publishes a `PostCreatedEvent` to Kafka topic `posts.created` when `KAFKA_BROKERS` is set. The `search-indexer` consumer indexes each message into Elasticsearch. |
+| **Existing posts** | The indexer does **not** scan Cassandra. Run the one-off backfill command instead (see below). |
+
+The API producer is enabled when `KAFKA_BROKERS` is configured (see [Environment Configuration](../environment.md)). Notification Kafka (`KAFKA_NOTIFICATIONS_ENABLED`) is separate but uses the same broker.
+
+The `search-indexer` is a standalone Go service (`cmd/indexer/main.go`) that:
+- Creates ES indexes on startup if missing (`posts`, `users`)
 - Consumes the `posts.created` Kafka topic (consumer group: `search-indexer`)
 - Indexes each post into Elasticsearch (idempotent — uses `post_id` as `_id`)
 - Syncs the post author's username into Redis sorted set `users:autocomplete`
-- Handles transient errors with exponential backoff (does not exit on failure)
+- Retries on transient Kafka/ES errors (does not exit on failure)
+
+### Local development setup
+
+1. Start infrastructure:
+   ```bash
+   docker compose --profile dev up -d
+   ```
+
+2. Configure `.env.development` (loaded automatically when `APP_ENV=development`):
+   ```env
+   KAFKA_BROKERS=127.0.0.1:9092
+   KAFKA_NOTIFICATIONS_ENABLED=true
+   ELASTICSEARCH_URL=http://localhost:9200
+   ELASTICSEARCH_INDEX_POSTS=posts
+   ELASTICSEARCH_INDEX_USERS=users
+   ```
+
+3. Run the indexer (separate terminal):
+   ```bash
+   go run cmd/indexer/main.go
+   ```
+
+4. Run the API:
+   ```bash
+   go run cmd/api/main.go
+   ```
+
+5. Backfill posts that existed before indexing was enabled:
+   ```bash
+   go run cmd/backfill-search/main.go
+   ```
+
+### Backfill existing posts
+
+```bash
+go run cmd/backfill-search/main.go
+```
+
+This reads all rows from Cassandra `posts_by_id`, writes them directly to Elasticsearch, and syncs usernames to Redis autocomplete. Safe to re-run — documents are upserted by `post_id`.
+
+### Verify indexing
+
+```bash
+# Document count
+curl -s http://localhost:9200/posts/_count
+
+# Sample search
+curl -s 'http://localhost:9200/posts/_search?q=jakarta&pretty'
+
+# Kafka topic offsets
+docker exec geoloc-kafka kafka-get-offsets --bootstrap-server localhost:29092 --topic posts.created
+```
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `/api/v1/search` returns empty `posts` | ES index empty | Run `go run cmd/backfill-search/main.go` |
+| New posts not searchable | Indexer not running or API not publishing | Restart API + indexer; confirm `KAFKA_BROKERS` is set |
+| `Group Coordinator Not Available` at indexer startup | Kafka still initializing | Wait for `geoloc-kafka` healthy, restart indexer |
+| `i/o timeout` on empty `posts.created` topic | Idle consumer long-poll | Harmless while waiting; create a test post to confirm flow |
 
 ---
 
