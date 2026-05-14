@@ -15,7 +15,8 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 - [Posts](./api/posts.md) - Create, read, like posts
 - [Users](./api/users.md) - User profiles and follows
 - [Comments](./api/comments.md) - Nested comments system
-- [Notifications](./api/notifications.md) - In-app notifications
+- [Notifications](./api/notifications.md) - In-app notifications and SSE
+- [Push notification testing](./testing-push-notifications.md) - FCM / Postman local testing
 - [Search](./api/search.md) - Elasticsearch search, indexing pipeline, and backfill
 
 ### Architecture

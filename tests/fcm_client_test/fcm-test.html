@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>FCM Token Test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    pre { white-space: pre-wrap; word-break: break-all; background: #f4f4f4; padding: 1rem; }
+    .hint { color: #555; font-size: 0.95rem; }
+  </style>
+</head>
+<body>
+  <h1>FCM web token test</h1>
+  <p class="hint">
+    Run the server from this folder:<br>
+    <code>cd tests/fcm_client_test && python3 -m http.server 3000</code><br>
+    Then open <code>http://localhost:3000/fcm-test.html</code> (use <code>localhost</code>, not <code>127.0.0.1</code>).
+  </p>
+  <button id="btn">Get FCM token</button>
+  <pre id="out">Click the button after allowing notifications.</pre>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getMessaging, getToken, onMessage } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js';
+    import { firebaseConfig, vapidKey } from './firebase-config.js';
+
+    const out = document.getElementById('out');
+    const app = initializeApp(firebaseConfig);
+    const messaging = getMessaging(app);
+
+    onMessage(messaging, (payload) => {
+      console.log('Foreground message:', payload);
+      alert((payload.notification?.title || 'Geoloc') + ': ' + (payload.notification?.body || ''));
+    });
+
+    document.getElementById('btn').onclick = async () => {
+      try {
+        if (!vapidKey || vapidKey.includes('PASTE_YOUR')) {
+          throw new Error('Set vapidKey in firebase-config.js (Firebase Console → Cloud Messaging → Web Push certificates).');
+        }
+
+        if (!('serviceWorker' in navigator)) {
+          throw new Error('Service workers are not supported in this browser.');
+        }
+
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          throw new Error('Notification permission denied.');
+        }
+
+        // Register SW explicitly — must be served from this directory root.
+        const registration = await navigator.serviceWorker.register('./firebase-messaging-sw.js', {
+          scope: './',
+        });
+        await navigator.serviceWorker.ready;
+
+        const token = await getToken(messaging, {
+          vapidKey,
+          serviceWorkerRegistration: registration,
+        });
+
+        if (!token) {
+          throw new Error('getToken returned empty. Check VAPID key and Firebase web app setup.');
+        }
+
+        out.textContent = token;
+        console.log('FCM token:', token);
+      } catch (err) {
+        console.error(err);
+        out.textContent = String(err.message || err);
+      }
+    };
+  </script>
+</body>
+</html>

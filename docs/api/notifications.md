@@ -117,3 +117,41 @@ data: ...
   "message": "Notification deleted"
 }
 ```
+
+---
+
+## Device registration (push)
+
+**Register:** `POST /api/v1/devices`
+
+```json
+{
+  "token": "fcm-registration-token",
+  "platform": "ios"
+}
+```
+
+`platform` must be `ios`, `android`, or `web`.
+
+**Unregister:** `DELETE /api/v1/devices` with body `{ "token": "..." }`.
+
+Tokens are stored in Cassandra `push_device_tokens` (see migration `006_notifications_v2.cql`).
+
+---
+
+## What triggers notifications
+
+| Event | Endpoint | Notes |
+|-------|----------|-------|
+| Follow | `POST /api/v1/users/:id/follow` | Always dispatches |
+| Post like | `POST /api/v1/posts/:id/toggle-like` | Only when `changed: true` and `is_liked: true`; **not** legacy `POST .../like` |
+| Comment | `POST /api/v1/posts/:id/comments` | Comment notification |
+| Nearby post | Post create + location followers | Via Kafka nearby fanout |
+
+Access tokens expire after **15 minutes** — refresh or re-login before testing.
+
+---
+
+## Local testing
+
+See [Push notification testing](../testing-push-notifications.md) for Level 1 (log-only) and Level 2 (real FCM web push) with Postman.

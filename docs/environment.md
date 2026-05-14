@@ -91,3 +91,23 @@ ELASTICSEARCH_INDEX_USERS=users
 4. **BASE_URL**: Set to your production domain (e.g., `https://api.yourapp.com`)
 5. **KAFKA_BROKERS**: Use your managed Kafka cluster endpoints
 6. **ELASTICSEARCH_URL**: Use your production ES cluster URL with TLS/auth as required
+
+## Optional — Push notifications (FCM)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `PUSH_NOTIFICATIONS_ENABLED` | Use Firebase Admin SDK instead of log-only push | `false` |
+| `FCM_PROJECT_ID` | Firebase project ID | — |
+| `FCM_CREDENTIALS_JSON` | Service account JSON (single line) or path via env | — |
+
+Requires migration `migrations/006_notifications_v2.cql` (`push_device_tokens` table).
+
+**Local example** (do not commit real credentials):
+
+```env
+PUSH_NOTIFICATIONS_ENABLED=true
+FCM_PROJECT_ID=your-firebase-project-id
+FCM_CREDENTIALS_JSON={"type":"service_account",...}
+```
+
+See [Push notification testing](./testing-push-notifications.md).
