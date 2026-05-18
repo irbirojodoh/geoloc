@@ -82,6 +82,7 @@ func main() {
 
 	if err := rdb.Ping(context.Background()).Err(); err != nil {
 		slog.Warn("redis unavailable, autocomplete sync will be disabled", "error", err)
+		rdb = nil
 	}
 
 	ctx := context.Background()
@@ -90,10 +91,37 @@ func main() {
 	}
 
 	groupID := "search-indexer"
-	topic := "posts.created"
 
-	slog.Info("connecting to Kafka", "brokers", brokers, "group", groupID, "topic", topic)
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
+	consumerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		<-sigCh
+		slog.Info("shutting down indexer")
+		cancel()
+	}()
+
+	slog.Info("indexer consumers starting", "group", groupID, "topics", []string{"posts.created", "users.indexed"})
+
+	errCh := make(chan error, 2)
+	go func() {
+		errCh <- runConsumer(consumerCtx, brokers, groupID, "posts.created", func(msg kafkago.Message) error {
+			return processPostMessage(consumerCtx, esClient, rdb, msg, postsIndex)
+		})
+	}()
+	go func() {
+		errCh <- runConsumer(consumerCtx, brokers, groupID, "users.indexed", func(msg kafkago.Message) error {
+			return processUserMessage(consumerCtx, esClient, rdb, msg, usersIndex)
+		})
+	}()
+
+	<-errCh
+}
+
+func runConsumer(ctx context.Context, brokers []string, groupID, topic string, handler func(kafkago.Message) error) error {
 	reader := kafkago.NewReader(kafkago.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        groupID,
@@ -103,36 +131,31 @@ func main() {
 		MaxWait:        1 * time.Second,
 		CommitInterval: 0,
 		ErrorLogger: kafkago.LoggerFunc(func(msg string, args ...interface{}) {
-			slog.Error("kafka reader error", "msg", msg, "args", args)
+			slog.Error("kafka reader error", "topic", topic, "msg", msg, "args", args)
 		}),
 	})
 	defer reader.Close()
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-
-	slog.Info("indexer consumer started, waiting for messages")
+	slog.Info("consumer started", "topic", topic)
 
 	for {
-		select {
-		case <-sigCh:
-			slog.Info("shutting down indexer")
-			return
-		default:
+		if ctx.Err() != nil {
+			return nil
 		}
 
 		msg, err := reader.FetchMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return nil
 			}
-			slog.Error("kafka fetch error", "error", err)
+			slog.Error("kafka fetch error", "topic", topic, "error", err)
 			backoffSleep(ctx)
 			continue
 		}
 
-		if err := processMessage(ctx, esClient, rdb, msg, postsIndex); err != nil {
+		if err := handler(msg); err != nil {
 			slog.Error("failed to process message, will retry on next fetch",
+				"topic", topic,
 				"partition", msg.Partition,
 				"offset", msg.Offset,
 				"error", err,
@@ -142,12 +165,12 @@ func main() {
 		}
 
 		if err := reader.CommitMessages(ctx, msg); err != nil {
-			slog.Error("failed to commit message", "error", err)
+			slog.Error("failed to commit message", "topic", topic, "error", err)
 		}
 	}
 }
 
-func processMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.Client, msg kafkago.Message, postsIndex string) error {
+func processPostMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.Client, msg kafkago.Message, postsIndex string) error {
 	var event search.PostCreatedEvent
 	if err := json.Unmarshal(msg.Value, &event); err != nil {
 		return fmt.Errorf("unmarshal event: %w", err)
@@ -183,6 +206,25 @@ func processMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.C
 		"post_id", event.PostID,
 		"username_synced", event.Username != "",
 	)
+	return nil
+}
+
+func processUserMessage(ctx context.Context, esClient *search.ESClient, rdb *redis.Client, msg kafkago.Message, usersIndex string) error {
+	var event search.UserIndexedEvent
+	if err := json.Unmarshal(msg.Value, &event); err != nil {
+		return fmt.Errorf("unmarshal event: %w", err)
+	}
+
+	slog.Info("indexing user",
+		"user_id", event.UserID,
+		"username", event.Username,
+	)
+
+	if err := search.IndexUserFromEvent(ctx, esClient, rdb, usersIndex, event); err != nil {
+		return fmt.Errorf("index user: %w", err)
+	}
+
+	slog.Info("successfully indexed user", "user_id", event.UserID)
 	return nil
 }
 

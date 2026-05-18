@@ -35,3 +35,25 @@ func PostDocumentFromEvent(event PostCreatedEvent) PostDocument {
 	}
 	return doc
 }
+
+// UserDocument is the Elasticsearch document shape for a user.
+type UserDocument struct {
+	UserID        string `json:"user_id"`
+	Username      string `json:"username"`
+	DisplayName   string `json:"display_name"`
+	FollowerCount int    `json:"follower_count"`
+	IsVerified    bool   `json:"is_verified"`
+	AvatarURL     string `json:"avatar_url,omitempty"`
+}
+
+// UserDocumentFromEvent builds an ES document from a user-indexed event.
+func UserDocumentFromEvent(event UserIndexedEvent) UserDocument {
+	return UserDocument{
+		UserID:        event.UserID,
+		Username:      event.Username,
+		DisplayName:   event.DisplayName,
+		FollowerCount: event.FollowerCount,
+		IsVerified:    event.IsVerified,
+		AvatarURL:     event.AvatarURL,
+	}
+}

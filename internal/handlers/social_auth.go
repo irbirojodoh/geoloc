@@ -8,6 +8,7 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/search"
 )
 
 // SocialLoginRequest is the body for mobile-native social sign-in endpoints.
@@ -26,7 +27,7 @@ type SocialLoginRequest struct {
 //
 // Request body: { "id_token": "eyJ..." }
 // Response:     { "user": {...}, "access_token": "...", "refresh_token": "...", "is_new_user": true }
-func GoogleLogin(userRepo *data.UserRepository) gin.HandlerFunc {
+func GoogleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SocialLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -59,6 +60,10 @@ func GoogleLogin(userRepo *data.UserRepository) gin.HandlerFunc {
 			return
 		}
 
+		if isNew {
+			search.PublishUserIndexedAsync(searchIndexer, search.UserIndexedEventFromUser(user, 0))
+		}
+
 		// Issue app JWT tokens
 		tokens, err := auth.GenerateTokenPair(user.ID)
 		if err != nil {
@@ -82,7 +87,7 @@ func GoogleLogin(userRepo *data.UserRepository) gin.HandlerFunc {
 // Request body: { "id_token": "eyJ...", "full_name": "Jane Doe" }
 // Note: full_name should be sent on first sign-in only; Apple won't include it in future logins.
 // Response:     { "user": {...}, "access_token": "...", "refresh_token": "...", "is_new_user": true }
-func AppleLogin(userRepo *data.UserRepository) gin.HandlerFunc {
+func AppleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SocialLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -120,6 +125,10 @@ func AppleLogin(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process sign-in"})
 			return
+		}
+
+		if isNew {
+			search.PublishUserIndexedAsync(searchIndexer, search.UserIndexedEventFromUser(user, 0))
 		}
 
 		// Issue app JWT tokens

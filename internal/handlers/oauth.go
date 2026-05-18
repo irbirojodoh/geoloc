@@ -8,6 +8,7 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/search"
 
 	"github.com/gin-gonic/gin"
 	"github.com/markbates/goth/gothic"
@@ -30,7 +31,7 @@ func LoginOAuth() gin.HandlerFunc {
 
 // CompleteOAuth handles the callback from the provider
 // /auth/:provider/callback
-func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
+func CompleteOAuth(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		provider := c.Param("provider")
 
@@ -49,7 +50,7 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 
 		// 2. Find or Create User in DB
 		// Goth normalizes data so oauthUser.Email / oauthUser.Name works for both Google & Apple
-		user, _, err := userRepo.GetOrCreateOAuthUser(
+		user, isNew, err := userRepo.GetOrCreateOAuthUser(
 			c.Request.Context(),
 			oauthUser.Email,
 			oauthUser.Name,
@@ -58,6 +59,10 @@ func CompleteOAuth(userRepo *data.UserRepository) gin.HandlerFunc {
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process sign-in"})
 			return
+		}
+
+		if isNew {
+			search.PublishUserIndexedAsync(searchIndexer, search.UserIndexedEventFromUser(user, 0))
 		}
 
 		// 3. Generate JWT for your App

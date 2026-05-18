@@ -80,16 +80,25 @@ Performs full-text search across posts and users simultaneously using Elasticsea
 | `limit` | int | No | Results per page (default: 20, max: 50) |
 
 **Response:** `200 OK`
+
+Each item in `posts` uses the same `data.Post` shape as `GET /api/v1/feed` (`username`, `profile_picture_url`, `location_name`, `address`, `like_count`, `is_liked`, etc.). Posts are hydrated from Cassandra after Elasticsearch returns matching IDs.
+
 ```json
 {
   "posts": [
     {
       "id": "post-uuid",
       "user_id": "user-uuid",
+      "username": "john_doe",
+      "profile_picture_url": "https://...",
       "content": "Matching content...",
+      "media_urls": ["https://..."],
       "geohash": "qqggy",
-      "created_at": "2026-01-05T10:30:00Z",
-      "like_count": 42
+      "location_name": "Depok",
+      "address": { "city": "Depok", "country": "Indonesia" },
+      "like_count": 42,
+      "is_liked": false,
+      "created_at": "2026-01-05T10:30:00Z"
     }
   ],
   "users": [
@@ -126,6 +135,9 @@ Full-text search filtered by geographic proximity. Users are not geo-filtered.
 - 20% Proximity (1 / (1 + distance_km))
 
 **Response:** `200 OK`
+
+Post objects match the feed shape; `distance_km` is set from the search `lat`/`lon` query parameters.
+
 ```json
 {
   "posts": [ ... ],

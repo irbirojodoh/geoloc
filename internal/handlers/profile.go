@@ -7,10 +7,11 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/search"
 )
 
 // UpdateProfile handles PUT /api/v1/users/me
-func UpdateProfile(userRepo *data.UserRepository) gin.HandlerFunc {
+func UpdateProfile(userRepo *data.UserRepository, followRepo *data.FollowRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := auth.GetUserID(c)
 		if userID == "" {
@@ -33,6 +34,14 @@ func UpdateProfile(userRepo *data.UserRepository) gin.HandlerFunc {
 			})
 			return
 		}
+
+		followerCount := 0
+		if followRepo != nil {
+			if counts, err := followRepo.GetFollowCounts(c.Request.Context(), userID); err == nil && counts != nil {
+				followerCount = int(counts.FollowersCount)
+			}
+		}
+		search.PublishUserIndexedAsync(searchIndexer, search.UserIndexedEventFromUser(user, followerCount))
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Profile updated",

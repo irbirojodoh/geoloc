@@ -103,8 +103,8 @@ func TestOAuthFlow_Integration(t *testing.T) {
 
 	// Register the exact routes used in main.go
 	r.GET("/auth/:provider/login", LoginOAuth())
-	r.GET("/auth/:provider/callback", CompleteOAuth(userRepo))
-	r.POST("/auth/:provider/callback", CompleteOAuth(userRepo)) // For Apple
+	r.GET("/auth/:provider/callback", CompleteOAuth(userRepo, nil))
+	r.POST("/auth/:provider/callback", CompleteOAuth(userRepo, nil)) // For Apple
 
 	// ==========================================
 	// Test Case 1: Google Flow (GET Callback)

@@ -31,6 +31,7 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 ### Client Development
 - [Flutter Client Guide](./client/flutter.md) - Build the Flutter mobile app
 - [API Integration](./client/api-integration.md) - Best practices for clients
+- [Notifications list (frontend Phase 1)](./client/notifications-list-frontend.md) - `GET /api/v1/notifications` implementation guide
 
 ---
 

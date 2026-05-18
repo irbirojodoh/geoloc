@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -118,13 +119,57 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 
 // NewSearchHandler holds dependencies for the new ES-backed search routes.
 type NewSearchHandler struct {
-	svc     search.Service
-	session *gocql.Session
+	svc      search.Service
+	session  *gocql.Session
+	userRepo *data.UserRepository
+	locRepo  *data.LocationRepository
+	likeRepo *data.LikeRepository
 }
 
 // NewNewSearchHandler creates a new NewSearchHandler.
-func NewNewSearchHandler(svc search.Service, session *gocql.Session) *NewSearchHandler {
-	return &NewSearchHandler{svc: svc, session: session}
+func NewNewSearchHandler(
+	svc search.Service,
+	session *gocql.Session,
+	userRepo *data.UserRepository,
+	locRepo *data.LocationRepository,
+	likeRepo *data.LikeRepository,
+) *NewSearchHandler {
+	return &NewSearchHandler{
+		svc:      svc,
+		session:  session,
+		userRepo: userRepo,
+		locRepo:  locRepo,
+		likeRepo: likeRepo,
+	}
+}
+
+func (h *NewSearchHandler) hydrateAndEnrichPosts(
+	ctx context.Context,
+	esPosts []search.PostResult,
+	currentUserID string,
+	viewerLat, viewerLon float64,
+) []data.Post {
+	postIDs := make([]string, 0, len(esPosts))
+	distanceByPostID := make(map[string]float64, len(esPosts))
+	for _, p := range esPosts {
+		postIDs = append(postIDs, p.PostID)
+		if viewerLat != 0 || viewerLon != 0 {
+			distanceByPostID[p.PostID] = search.HaversineDistance(viewerLat, viewerLon, p.Lat, p.Lon)
+		}
+	}
+
+	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
+	EnrichPosts(ctx, hydratedPosts, h.userRepo, h.locRepo, h.likeRepo, currentUserID)
+
+	if len(distanceByPostID) > 0 {
+		for i := range hydratedPosts {
+			if d, ok := distanceByPostID[hydratedPosts[i].ID]; ok {
+				hydratedPosts[i].Distance = d
+			}
+		}
+	}
+
+	return hydratedPosts
 }
 
 // SearchHandler handles GET /v1/search
@@ -194,12 +239,11 @@ func (h *NewSearchHandler) SearchHandler(c *gin.Context) {
 		slog.Warn("search: users query failed, returning partial results", "error", usersErr)
 	}
 
-	// Hydrate posts from Cassandra
-	postIDs := make([]string, 0, len(posts))
-	for _, p := range posts {
-		postIDs = append(postIDs, p.PostID)
+	currentUserID := auth.GetUserID(c)
+	var hydratedPosts []data.Post
+	if len(posts) > 0 {
+		hydratedPosts = h.hydrateAndEnrichPosts(ctx, posts, currentUserID, 0, 0)
 	}
-	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
 
 	// Hydrate users from Cassandra
 	userIDs := make([]string, 0, len(users))
@@ -207,9 +251,6 @@ func (h *NewSearchHandler) SearchHandler(c *gin.Context) {
 		userIDs = append(userIDs, u.UserID)
 	}
 	hydratedUsers, _ := search.HydrateUsers(ctx, userIDs, h.session)
-
-	// Mark like state for current user
-	_ = auth.GetUserID(c)
 
 	total := len(hydratedPosts) + len(hydratedUsers)
 
@@ -311,12 +352,11 @@ func (h *NewSearchHandler) SearchNearbyHandler(c *gin.Context) {
 		posts = search.RankPosts(posts, lat, lon)
 	}
 
-	// Hydrate posts
-	postIDs := make([]string, 0, len(posts))
-	for _, p := range posts {
-		postIDs = append(postIDs, p.PostID)
+	currentUserID := auth.GetUserID(c)
+	var hydratedPosts []data.Post
+	if len(posts) > 0 {
+		hydratedPosts = h.hydrateAndEnrichPosts(ctx, posts, currentUserID, lat, lon)
 	}
-	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
 
 	// Hydrate users
 	userIDs := make([]string, 0, len(users))

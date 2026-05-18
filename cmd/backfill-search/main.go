@@ -67,6 +67,7 @@ func main() {
 
 	esClient := search.NewESClient()
 	userRepo := data.NewUserRepository(session)
+	followRepo := data.NewFollowRepository(session)
 
 	var rdb *redis.Client
 	redisAddr := fmt.Sprintf("%s:%s", os.Getenv("REDIS_HOST"), os.Getenv("REDIS_PORT"))
@@ -80,6 +81,21 @@ func main() {
 		rdb = nil
 	}
 
+	postsIndexed, postsFailed := backfillPosts(ctx, session, esClient, userRepo, rdb, postsIndex)
+	usersIndexed, usersFailed := backfillUsers(ctx, session, esClient, followRepo, rdb, usersIndex)
+
+	log.Printf("Backfill complete: posts indexed=%d failed=%d; users indexed=%d failed=%d",
+		postsIndexed, postsFailed, usersIndexed, usersFailed)
+}
+
+func backfillPosts(
+	ctx context.Context,
+	session *gocql.Session,
+	esClient *search.ESClient,
+	userRepo *data.UserRepository,
+	rdb *redis.Client,
+	postsIndex string,
+) (indexed, failed int) {
 	iter := session.Query(`
 		SELECT post_id, user_id, content, latitude, longitude, geohash, created_at
 		FROM posts_by_id
@@ -94,9 +110,6 @@ func main() {
 		geohash   string
 		createdAt time.Time
 	)
-
-	indexed := 0
-	failed := 0
 
 	for iter.Scan(&postID, &userID, &content, &latitude, &longitude, &geohash, &createdAt) {
 		username := ""
@@ -137,6 +150,58 @@ func main() {
 	if err := iter.Close(); err != nil {
 		log.Fatalf("Failed while scanning posts: %v", err)
 	}
+	return indexed, failed
+}
 
-	log.Printf("Backfill complete: indexed=%d failed=%d", indexed, failed)
+func backfillUsers(
+	ctx context.Context,
+	session *gocql.Session,
+	esClient *search.ESClient,
+	followRepo *data.FollowRepository,
+	rdb *redis.Client,
+	usersIndex string,
+) (indexed, failed int) {
+	iter := session.Query(`
+		SELECT id, username, full_name, profile_picture_url, is_deleted
+		FROM users
+	`).WithContext(ctx).Iter()
+
+	var (
+		userID            gocql.UUID
+		username          string
+		fullName          string
+		profilePictureURL string
+		isDeleted         bool
+	)
+
+	for iter.Scan(&userID, &username, &fullName, &profilePictureURL, &isDeleted) {
+		if isDeleted || username == "" {
+			continue
+		}
+
+		followerCount := 0
+		if counts, err := followRepo.GetFollowCounts(ctx, userID.String()); err == nil && counts != nil {
+			followerCount = int(counts.FollowersCount)
+		}
+
+		user := &data.User{
+			ID:                userID.String(),
+			Username:          username,
+			FullName:          fullName,
+			ProfilePictureURL: profilePictureURL,
+		}
+		event := search.UserIndexedEventFromUser(user, followerCount)
+
+		if err := search.IndexUserFromEvent(ctx, esClient, rdb, usersIndex, event); err != nil {
+			log.Printf("Failed to index user %s: %v", event.UserID, err)
+			failed++
+			continue
+		}
+		indexed++
+	}
+
+	if err := iter.Close(); err != nil {
+		log.Fatalf("Failed while scanning users: %v", err)
+	}
+	return indexed, failed
 }

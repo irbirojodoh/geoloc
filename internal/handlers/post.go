@@ -18,6 +18,72 @@ import (
 	"social-geo-go/internal/search"
 )
 
+// EnrichPosts adds author, location, and like fields to posts (same shape as GET /api/v1/feed items).
+func EnrichPosts(
+	ctx context.Context,
+	posts []data.Post,
+	userRepo *data.UserRepository,
+	locRepo *data.LocationRepository,
+	likeRepo *data.LikeRepository,
+	currentUserID string,
+) {
+	if len(posts) == 0 {
+		return
+	}
+
+	userIDs := make([]string, 0, len(posts))
+	seenUsers := make(map[string]bool)
+	geohashes := make([]string, 0, len(posts))
+	seenGeohashes := make(map[string]bool)
+	latLngMap := make(map[string][2]float64)
+	postIDs := make([]string, 0, len(posts))
+
+	for _, p := range posts {
+		postIDs = append(postIDs, p.ID)
+		if !seenUsers[p.UserID] {
+			userIDs = append(userIDs, p.UserID)
+			seenUsers[p.UserID] = true
+		}
+		geohashPrefix := data.GetGeohashPrefix(p.Latitude, p.Longitude)
+		if !seenGeohashes[geohashPrefix] {
+			geohashes = append(geohashes, geohashPrefix)
+			seenGeohashes[geohashPrefix] = true
+			latLngMap[geohashPrefix] = [2]float64{p.Latitude, p.Longitude}
+		}
+	}
+
+	if userRepo != nil {
+		userInfoMap, _ := userRepo.GetUsersByIDs(ctx, userIDs)
+		for i := range posts {
+			if info, ok := userInfoMap[posts[i].UserID]; ok {
+				posts[i].Username = info.Username
+				posts[i].ProfilePictureURL = info.ProfilePictureURL
+			}
+		}
+	}
+
+	if locRepo != nil {
+		locInfoMap, _ := locRepo.GetLocationsByGeohashes(ctx, geohashes, latLngMap)
+		for i := range posts {
+			geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
+			if loc, ok := locInfoMap[geohashPrefix]; ok {
+				posts[i].LocationName = loc.Name
+				posts[i].Address = &loc.Address
+			}
+		}
+	}
+
+	if likeRepo != nil {
+		likeInfoMap, _ := likeRepo.GetLikesForPosts(ctx, postIDs, currentUserID)
+		for i := range posts {
+			if info, ok := likeInfoMap[posts[i].ID]; ok {
+				posts[i].LikeCount = info.LikeCount
+				posts[i].IsLiked = info.IsLiked
+			}
+		}
+	}
+}
+
 // CreatePost handles POST /api/v1/posts
 func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher, postIndexer search.PostIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -211,69 +277,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		// Get current user ID for like status (already set above for block/mute filtering)
-		currentUserID = auth.GetUserID(c)
-
-		// Enrich posts with user info and location info
-		if len(posts) > 0 {
-			// Collect unique user IDs
-			userIDs := make([]string, 0, len(posts))
-			seenUsers := make(map[string]bool)
-
-			// Collect unique geohashes and their coordinates
-			geohashes := make([]string, 0, len(posts))
-			seenGeohashes := make(map[string]bool)
-			latLngMap := make(map[string][2]float64)
-
-			// Collect post IDs for like info
-			postIDs := make([]string, 0, len(posts))
-
-			for _, p := range posts {
-				postIDs = append(postIDs, p.ID)
-				if !seenUsers[p.UserID] {
-					userIDs = append(userIDs, p.UserID)
-					seenUsers[p.UserID] = true
-				}
-				geohashPrefix := data.GetGeohashPrefix(p.Latitude, p.Longitude)
-				if !seenGeohashes[geohashPrefix] {
-					geohashes = append(geohashes, geohashPrefix)
-					seenGeohashes[geohashPrefix] = true
-					latLngMap[geohashPrefix] = [2]float64{p.Latitude, p.Longitude}
-				}
-			}
-
-			// Enrich with user info
-			userInfoMap, _ := userRepo.GetUsersByIDs(c.Request.Context(), userIDs)
-			for i := range posts {
-				if info, ok := userInfoMap[posts[i].UserID]; ok {
-					posts[i].Username = info.Username
-					posts[i].ProfilePictureURL = info.ProfilePictureURL
-				}
-			}
-
-			// Enrich with location info
-			if locRepo != nil {
-				locInfoMap, _ := locRepo.GetLocationsByGeohashes(c.Request.Context(), geohashes, latLngMap)
-				for i := range posts {
-					geohashPrefix := data.GetGeohashPrefix(posts[i].Latitude, posts[i].Longitude)
-					if loc, ok := locInfoMap[geohashPrefix]; ok {
-						posts[i].LocationName = loc.Name
-						posts[i].Address = &loc.Address
-					}
-				}
-			}
-
-			// Enrich with like info
-			if likeRepo != nil {
-				likeInfoMap, _ := likeRepo.GetLikesForPosts(c.Request.Context(), postIDs, currentUserID)
-				for i := range posts {
-					if info, ok := likeInfoMap[posts[i].ID]; ok {
-						posts[i].LikeCount = info.LikeCount
-						posts[i].IsLiked = info.IsLiked
-					}
-				}
-			}
-		}
+		EnrichPosts(c.Request.Context(), posts, userRepo, locRepo, likeRepo, currentUserID)
 
 		c.JSON(http.StatusOK, data.PaginatedResponse{
 			Data:       posts,

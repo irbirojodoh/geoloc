@@ -50,7 +50,7 @@ func RankPosts(results []PostResult, userLat, userLon float64) []PostResult {
 		// Proximity score: 1 / (1 + distance_km), 0.0 if no geo context
 		proximityScore := 0.0
 		if userLat != 0 || userLon != 0 {
-			distanceKm := haversineDistance(userLat, userLon, r.Lat, r.Lon)
+			distanceKm := HaversineDistance(userLat, userLon, r.Lat, r.Lon)
 			proximityScore = 1.0 / (1.0 + distanceKm)
 		}
 
@@ -73,9 +73,9 @@ func RankPosts(results []PostResult, userLat, userLon float64) []PostResult {
 	return ranked
 }
 
-// haversineDistance calculates the great-circle distance between two points
+// HaversineDistance calculates the great-circle distance between two points
 // on the Earth (specified in decimal degrees) in kilometers.
-func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
+func HaversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	const earthRadius = 6371.0 // km
 
 	dLat := (lat2 - lat1) * math.Pi / 180.0

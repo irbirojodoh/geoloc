@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// UserIndexedEvent is published when a user should be indexed or re-indexed in Elasticsearch.
+type UserIndexedEvent struct {
+	UserID        string `json:"user_id"`
+	Username      string `json:"username"`
+	DisplayName   string `json:"display_name"`
+	FollowerCount int    `json:"follower_count"`
+	IsVerified    bool   `json:"is_verified"`
+	AvatarURL     string `json:"avatar_url,omitempty"`
+}
+
 // PostCreatedEvent is published when a new post is created for search indexing.
 type PostCreatedEvent struct {
 	PostID    string    `json:"post_id"`

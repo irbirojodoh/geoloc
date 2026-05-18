@@ -11,29 +11,37 @@ Endpoints for in-app notifications.
 |-----------|------|---------|-------------|
 | `limit` | int | 50 | Max notifications |
 
+**Query Parameters (additional):**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `unread` | string | Set to `true` to return only unread notifications |
+
 **Response:** `200 OK`
 ```json
 {
-  "count": 3,
   "notifications": [
     {
       "id": "notif-uuid",
+      "user_id": "recipient-user-uuid",
       "type": "like",
-      "actor_id": "user-uuid",
+      "actor_id": "actor-user-uuid",
       "target_type": "post",
       "target_id": "post-uuid",
-      "message": "john_doe liked your post",
+      "message": "liked your post",
+      "payload": { "post_preview": "..." },
       "is_read": false,
-      "created_at": "2026-01-05T10:30:00Z",
-      "actor": {
-        "id": "user-uuid",
-        "username": "john_doe",
-        "profile_picture_url": "..."
-      }
+      "created_at": "2026-01-05T10:30:00Z"
     }
-  ]
+  ],
+  "unread_count": 5,
+  "total": 3
 }
 ```
+
+There is no nested `actor` object — resolve `actor_id` via `GET /api/v1/users/:id` on the client.
+
+**Frontend integration:** [Notifications list (Phase 1)](../client/notifications-list-frontend.md)
 
 ## Notification Types
 

@@ -44,7 +44,7 @@ func setupE2ERouter() *gin.Engine {
 	modRepo := data.NewModerationRepository(testSession)
 
 	// Public routes
-	r.POST("/auth/register", Register(userRepo))
+	r.POST("/auth/register", Register(userRepo, nil))
 	r.POST("/auth/login", Login(userRepo))
 	r.POST("/auth/refresh", Refresh)
 	r.POST("/auth/forgot-password", ForgotPassword(userRepo, resetRepo))
@@ -59,7 +59,7 @@ func setupE2ERouter() *gin.Engine {
 
 		// Profile
 		api.GET("/users/me", GetCurrentUser(userRepo))
-		api.PUT("/users/me", UpdateProfile(userRepo))
+		api.PUT("/users/me", UpdateProfile(userRepo, followRepo, nil))
 		api.DELETE("/users/me", DeleteAccount(userRepo))
 
 		// Users

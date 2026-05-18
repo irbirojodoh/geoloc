@@ -144,12 +144,12 @@ func main() {
 	}
 	notifDispatcher := notifications.NewDispatcher(notifProducer, notifRepo, rawRedisClient)
 
-	var postIndexer search.PostIndexer
+	var searchIndexer search.SearchIndexer
 	if brokersStr := os.Getenv("KAFKA_BROKERS"); brokersStr != "" {
 		brokers := strings.Split(brokersStr, ",")
 		if len(brokers) > 0 && brokers[0] != "" {
-			postIndexer = search.NewPostIndexer(brokers)
-			defer postIndexer.Close()
+			searchIndexer = search.NewSearchIndexer(brokers)
+			defer searchIndexer.Close()
 			log.Println("Kafka Search Indexer Producer enabled")
 		}
 	}
@@ -161,7 +161,7 @@ func main() {
 	// Initialize Elasticsearch and search service
 	esClient := search.NewESClient()
 	searchSvc := search.NewService(esClient, rawRedisClient)
-	searchHandler := handlers.NewNewSearchHandler(searchSvc, session)
+	searchHandler := handlers.NewNewSearchHandler(searchSvc, session, userRepo, locRepo, likeRepo)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -216,17 +216,17 @@ func main() {
 	})
 
 	// ============== PUBLIC ROUTES ==============
-	router.POST("/auth/register", handlers.Register(userRepo))
+	router.POST("/auth/register", handlers.Register(userRepo, searchIndexer))
 	router.POST("/auth/login", handlers.Login(userRepo))
 
 	// Mobile-native social login: Flutter app verifies natively and sends ID token here
-	router.POST("/auth/google/token", handlers.GoogleLogin(userRepo))
-	router.POST("/auth/apple/token", handlers.AppleLogin(userRepo))
+	router.POST("/auth/google/token", handlers.GoogleLogin(userRepo, searchIndexer))
+	router.POST("/auth/apple/token", handlers.AppleLogin(userRepo, searchIndexer))
 
 	// Web-based OAuth redirect flow (kept for browser/web compatibility)
 	router.GET("/auth/:provider/login", handlers.LoginOAuth())
-	router.GET("/auth/:provider/callback", handlers.CompleteOAuth(userRepo))
-	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo)) // Apple uses POST
+	router.GET("/auth/:provider/callback", handlers.CompleteOAuth(userRepo, searchIndexer))
+	router.POST("/auth/:provider/callback", handlers.CompleteOAuth(userRepo, searchIndexer)) // Apple uses POST
 	router.POST("/auth/refresh", handlers.Refresh)
 
 	// Password reset (public)
@@ -250,7 +250,7 @@ func main() {
 
 		// Profile
 		api.GET("/users/me", handlers.GetCurrentUser(userRepo))
-		api.PUT("/users/me", handlers.UpdateProfile(userRepo))
+		api.PUT("/users/me", handlers.UpdateProfile(userRepo, followRepo, searchIndexer))
 		api.DELETE("/users/me", handlers.DeleteAccount(userRepo))
 
 		// User routes
@@ -274,7 +274,7 @@ func main() {
 		api.GET("/users/me/muted", handlers.GetMutedUsers(modRepo))
 
 		// Post routes
-		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, postIndexer))
+		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, searchIndexer))
 		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
 		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 

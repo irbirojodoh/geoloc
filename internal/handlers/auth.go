@@ -10,6 +10,7 @@ import (
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/search"
 )
 
 // RegisterRequest represents the request body for user registration
@@ -33,7 +34,7 @@ type RefreshRequest struct {
 }
 
 // Register handles POST /auth/register
-func Register(userRepo *data.UserRepository) gin.HandlerFunc {
+func Register(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req RegisterRequest
 
@@ -94,6 +95,8 @@ func Register(userRepo *data.UserRepository) gin.HandlerFunc {
 			})
 			return
 		}
+
+		search.PublishUserIndexedAsync(searchIndexer, search.UserIndexedEventFromUser(user, 0))
 
 		// Generate tokens
 		tokens, err := auth.GenerateTokenPair(user.ID)
