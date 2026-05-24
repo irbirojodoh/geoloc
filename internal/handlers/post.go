@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
+	"context"
 	"github.com/gin-gonic/gin"
 	"github.com/gocql/gocql"
 	"time"
-	"context"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
@@ -25,6 +25,7 @@ func EnrichPosts(
 	userRepo *data.UserRepository,
 	locRepo *data.LocationRepository,
 	likeRepo *data.LikeRepository,
+	commentRepo *data.CommentRepository,
 	currentUserID string,
 ) {
 	if len(posts) == 0 {
@@ -82,6 +83,13 @@ func EnrichPosts(
 			}
 		}
 	}
+
+	if commentRepo != nil {
+		commentCounts, _ := commentRepo.GetCommentCountsForPosts(ctx, postIDs)
+		for i := range posts {
+			posts[i].CommentCount = commentCounts[posts[i].ID]
+		}
+	}
 }
 
 // CreatePost handles POST /api/v1/posts
@@ -91,7 +99,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid request body",
+				"error": "Invalid request body",
 			})
 			return
 		}
@@ -133,7 +141,7 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 		post, err := postRepo.CreatePost(c.Request.Context(), &req)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create post",
+				"error": "Failed to create post",
 			})
 			return
 		}
@@ -188,13 +196,13 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 }
 
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, modRepo *data.ModerationRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, modRepo *data.ModerationRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
 		if err := c.ShouldBindQuery(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid query parameters",
+				"error": "Invalid query parameters",
 			})
 			return
 		}
@@ -249,7 +257,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 		)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch feed",
+				"error": "Failed to fetch feed",
 			})
 			return
 		}
@@ -277,7 +285,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		EnrichPosts(c.Request.Context(), posts, userRepo, locRepo, likeRepo, currentUserID)
+		EnrichPosts(c.Request.Context(), posts, userRepo, locRepo, likeRepo, commentRepo, currentUserID)
 
 		c.JSON(http.StatusOK, data.PaginatedResponse{
 			Data:       posts,
@@ -289,7 +297,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetPost handles GET /api/v1/posts/:id
-func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
@@ -339,6 +347,11 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			}
 		}
 
+		if commentRepo != nil {
+			commentCount, _ := commentRepo.GetCommentCount(c.Request.Context(), id)
+			post.CommentCount = commentCount
+		}
+
 		response := gin.H{
 			"post": post,
 		}
@@ -357,7 +370,7 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetUserPosts handles GET /api/v1/users/:id/posts
-func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 
@@ -392,7 +405,7 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 		posts, err := repo.GetPostsByUser(c.Request.Context(), userID, limit+1, cursorTime)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch user posts",
+				"error": "Failed to fetch user posts",
 			})
 			return
 		}
@@ -445,6 +458,13 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 						posts[i].LikeCount = info.LikeCount
 						posts[i].IsLiked = info.IsLiked
 					}
+				}
+			}
+
+			if commentRepo != nil {
+				commentCounts, _ := commentRepo.GetCommentCountsForPosts(c.Request.Context(), postIDs)
+				for i := range posts {
+					posts[i].CommentCount = commentCounts[posts[i].ID]
 				}
 			}
 		}

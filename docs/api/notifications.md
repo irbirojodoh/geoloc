@@ -69,14 +69,14 @@ Connects to a persistent SSE stream that pushes notifications as they happen.
 event: connected
 data: {"status":"connected","time":"2026-01-05T10:30:00Z"}
 
-event: notification
-data: { ... notification JSON ... }
+data: { ... AppNotification JSON ... }
 
-event: :keepalive
-data: ...
+: heartbeat
 ```
 
-**Heartbeat:** A keepalive event is sent every 30 seconds.
+`data:` payloads are the same shape as the `Notification` object returned by `GET /api/v1/notifications` (including `id`, `is_read`, and `created_at`).
+
+**Heartbeat:** A keepalive comment line is sent every 30 seconds.
 
 **Clients should:**
 - Auto-reconnect on connection drop (exponential backoff recommended)

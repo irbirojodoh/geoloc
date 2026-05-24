@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/messaging"
@@ -38,13 +39,34 @@ func NewFCMService(ctx context.Context, projectID string, credentialsJSON string
 }
 
 func (s *FCMService) Send(ctx context.Context, deviceToken, title, body string, data map[string]string) error {
+	badgeCount := 0
+	if rawBadge, ok := data["badge_count"]; ok {
+		if parsed, err := strconv.Atoi(rawBadge); err == nil && parsed >= 0 {
+			badgeCount = parsed
+		}
+	}
+
 	message := &messaging.Message{
 		Notification: &messaging.Notification{
 			Title: title,
 			Body:  body,
 		},
-		Data:  data,
+		Data: data,
 		Token: deviceToken,
+		Android: &messaging.AndroidConfig{
+			Priority: "high",
+		},
+		APNS: &messaging.APNSConfig{
+			Headers: map[string]string{
+				"apns-priority": "10",
+			},
+			Payload: &messaging.APNSPayload{
+				Aps: &messaging.Aps{
+					Badge: &badgeCount,
+					Sound: "default",
+				},
+			},
+		},
 	}
 
 	response, err := s.client.Send(ctx, message)

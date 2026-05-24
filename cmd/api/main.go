@@ -161,7 +161,7 @@ func main() {
 	// Initialize Elasticsearch and search service
 	esClient := search.NewESClient()
 	searchSvc := search.NewService(esClient, rawRedisClient)
-	searchHandler := handlers.NewNewSearchHandler(searchSvc, session, userRepo, locRepo, likeRepo)
+	searchHandler := handlers.NewNewSearchHandler(searchSvc, session, userRepo, locRepo, likeRepo, commentRepo)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -243,7 +243,7 @@ func main() {
 	api.Use(auth.AuthRequired())
 	{
 		// Feed (now protected — filters blocked/muted users)
-		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo, modRepo))
+		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo))
 
 		// Geocode
 		api.GET("/geocode/address", handlers.GetAddress(locRepo))
@@ -256,7 +256,7 @@ func main() {
 		// User routes
 		api.GET("/users/:id", handlers.GetUser(userRepo))
 		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo))
 		api.GET("/users/:id/liked-posts", handlers.GetLikedPosts(likeRepo, postRepo, userRepo, locRepo))
 
 		// Follow routes
@@ -275,7 +275,7 @@ func main() {
 
 		// Post routes
 		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, searchIndexer))
-		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo))
 		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 
 		// Post likes (legacy + new idempotent toggle)
@@ -311,7 +311,7 @@ func main() {
 
 		// Search routes (legacy Cassandra-backed)
 		api.GET("/search/users", handlers.SearchUsers(userRepo))
-		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo))
+		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo, commentRepo))
 
 		// Search routes (Elasticsearch-backed)
 		api.GET("/search/nearby", searchHandler.SearchNearbyHandler)
@@ -346,12 +346,6 @@ func main() {
 			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-persister", "notification.events", persisterHandler.Handle)
 			log.Println("Started notif-persister consumer group")
 
-			if rawRedisClient != nil {
-				sseHandler := kafka.NewSSEFanoutHandler(rawRedisClient)
-				go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-sse-fanout", "notification.events", sseHandler.Handle)
-				log.Println("Started notif-sse-fanout consumer group")
-			}
-
 			// Push Notifications Service
 			var pushService push.PushService
 			if os.Getenv("PUSH_NOTIFICATIONS_ENABLED") == "true" && os.Getenv("FCM_PROJECT_ID") != "" {
@@ -366,7 +360,7 @@ func main() {
 				pushService = push.NewLogPushService()
 			}
 
-			pushDispatchHandler := kafka.NewPushDispatchHandler(pushService, notifProducer)
+			pushDispatchHandler := kafka.NewPushDispatchHandler(pushService, notifProducer, rawRedisClient)
 			go kafka.RunConsumerGroup(consumerCtx, brokers, prefix+"-notif-push-dispatch", "notification.push.dispatch", pushDispatchHandler.Handle)
 			log.Println("Started notif-push-dispatch consumer group")
 

@@ -43,10 +43,7 @@ func StreamNotifications(redisClient *redis.Client) gin.HandlerFunc {
 		defer ticker.Stop()
 
 		// Send initial connected event
-		c.SSEvent("connected", map[string]interface{}{
-			"status": "connected",
-			"time":   time.Now().Format(time.RFC3339),
-		})
+		fmt.Fprintf(c.Writer, "event: connected\ndata: {\"status\":\"connected\",\"time\":\"%s\"}\n\n", time.Now().Format(time.RFC3339))
 		c.Writer.Flush()
 
 		c.Stream(func(w io.Writer) bool {
@@ -54,15 +51,13 @@ func StreamNotifications(redisClient *redis.Client) gin.HandlerFunc {
 			case <-ctx.Done():
 				return false
 			case <-ticker.C:
-				// Send heartbeat to keep connection alive
-				c.SSEvent("ping", map[string]interface{}{
-					"time": time.Now().Format(time.RFC3339),
-				})
+				// Send heartbeat comment to keep connection alive.
+				fmt.Fprint(c.Writer, ": heartbeat\n\n")
 				c.Writer.Flush()
 				return true
 			case msg := <-pubsub.Channel():
-				// Forward raw JSON string from Redis Pub/Sub as message data
-				c.SSEvent("notification", msg.Payload)
+				// Forward raw JSON payload so clients can parse into AppNotification directly.
+				fmt.Fprintf(c.Writer, "data: %s\n\n", msg.Payload)
 				c.Writer.Flush()
 				return true
 			}

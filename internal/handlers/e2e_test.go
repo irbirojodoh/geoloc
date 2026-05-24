@@ -55,7 +55,7 @@ func setupE2ERouter() *gin.Engine {
 	api.Use(auth.AuthRequired())
 	{
 		// Feed
-		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo, modRepo))
+		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo))
 
 		// Profile
 		api.GET("/users/me", GetCurrentUser(userRepo))
@@ -65,7 +65,7 @@ func setupE2ERouter() *gin.Engine {
 		// Users
 		api.GET("/users/:id", GetUser(userRepo))
 		api.GET("/users/username/:username", GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", GetUserPosts(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/users/:id/posts", GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo))
 
 		// Follow
 		api.POST("/users/:id/follow", FollowUser(followRepo, notifDispatcher))
@@ -83,7 +83,7 @@ func setupE2ERouter() *gin.Engine {
 
 		// Posts
 		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher, nil))
-		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo))
+		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo))
 		api.DELETE("/posts/:id", DeletePost(postRepo))
 
 		// data.Post likes
@@ -104,7 +104,7 @@ func setupE2ERouter() *gin.Engine {
 
 		// Search
 		api.GET("/search/users", SearchUsers(userRepo))
-		api.GET("/search/posts", SearchPosts(postRepo, userRepo, likeRepo))
+		api.GET("/search/posts", SearchPosts(postRepo, userRepo, likeRepo, commentRepo))
 
 		// Notifications
 		api.GET("/notifications", GetNotifications(notifRepo))

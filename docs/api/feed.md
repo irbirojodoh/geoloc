@@ -40,6 +40,9 @@ The feed endpoint returns posts near a geographic location with cursor-based pag
         "country": "Indonesia",
         "country_code": "id"
       },
+      "like_count": 42,
+      "comment_count": 8,
+      "is_liked": false,
       "created_at": "2026-01-05T10:30:00Z",
       "distance_km": 0.5
     }
@@ -63,6 +66,9 @@ The feed endpoint returns posts near a geographic location with cursor-based pag
 | `geohash` | Approximate location (5-char geohash) |
 | `location_name` | Place name (e.g., "Kukusan") |
 | `address` | Full address object |
+| `like_count` | Total likes for this post |
+| `comment_count` | Total comments for this post |
+| `is_liked` | Whether current authenticated user liked the post |
 | `created_at` | ISO 8601 timestamp |
 | `distance_km` | Distance from query location |
 

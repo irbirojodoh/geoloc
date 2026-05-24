@@ -110,6 +110,9 @@ Uses cursor-based pagination.
       "content": "Post content",
       "geohash": "qqggy",
       "location_name": "Kukusan",
+      "like_count": 42,
+      "comment_count": 8,
+      "is_liked": false,
       "address": { ... }
     }
   ],

@@ -2,7 +2,6 @@ package notifications
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/redis/go-redis/v9"
 	"social-geo-go/internal/data"
@@ -45,11 +44,7 @@ func (d *NotificationDispatcher) Dispatch(ctx context.Context, event *kafka.Noti
 	if err != nil {
 		return err
 	}
-	
-	if d.redisClient != nil {
-		d.redisClient.Incr(ctx, fmt.Sprintf("notif:unread:%s", event.RecipientID))
-	}
-	
+
 	return nil
 }
 

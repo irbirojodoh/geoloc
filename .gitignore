@@ -53,3 +53,4 @@ Thumbs.db
 # Ignore user uploads
 /uploads/*
 !/uploads/.gitkeep
+.env.development

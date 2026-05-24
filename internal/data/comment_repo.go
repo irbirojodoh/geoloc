@@ -428,6 +428,10 @@ func (r *CommentRepository) GetCommentCount(ctx context.Context, postID string) 
 		}
 	}
 
+	return r.getCommentCountFromCassandra(ctx, postID)
+}
+
+func (r *CommentRepository) getCommentCountFromCassandra(ctx context.Context, postID string) (int64, error) {
 	pid, err := gocql.ParseUUID(postID)
 	if err != nil {
 		return 0, fmt.Errorf("invalid post_id: %w", err)
@@ -445,4 +449,40 @@ func (r *CommentRepository) GetCommentCount(ctx context.Context, postID string) 
 	}
 
 	return count, nil
+}
+
+// GetCommentCountsForPosts returns comment counts for multiple post IDs.
+func (r *CommentRepository) GetCommentCountsForPosts(ctx context.Context, postIDs []string) (map[string]int64, error) {
+	counts := make(map[string]int64, len(postIDs))
+	if len(postIDs) == 0 {
+		return counts, nil
+	}
+
+	if r.commentCounter != nil {
+		redisCounts, err := r.commentCounter.GetCommentCountsBatch(ctx, postIDs)
+		if err == nil {
+			for postID, count := range redisCounts {
+				counts[postID] = count
+			}
+		}
+	}
+
+	// Backfill missing/zero entries from Cassandra to keep API response accurate.
+	for _, postID := range postIDs {
+		if count, exists := counts[postID]; exists && count > 0 {
+			continue
+		}
+
+		cassandraCount, err := r.getCommentCountFromCassandra(ctx, postID)
+		if err != nil {
+			// Keep best-effort behavior for feed/list enrichment.
+			if _, exists := counts[postID]; !exists {
+				counts[postID] = 0
+			}
+			continue
+		}
+		counts[postID] = cassandraCount
+	}
+
+	return counts, nil
 }

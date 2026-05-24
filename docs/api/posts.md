@@ -21,12 +21,18 @@ Endpoints for creating, reading, and interacting with posts.
 **Response:** `201 Created`
 ```json
 {
-  "id": "a6b4ff20-ea1b-11f0-879d-7a2e88169b55",
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "content": "Beautiful sunset! 🌅",
-  "media_urls": ["https://example.com/upload.jpg"],
-  "geohash": "qqggy",
-  "created_at": "2026-01-05T10:30:00Z"
+  "message": "Post created successfully",
+  "post": {
+    "id": "a6b4ff20-ea1b-11f0-879d-7a2e88169b55",
+    "user_id": "550e8400-e29b-41d4-a716-446655440000",
+    "content": "Beautiful sunset! 🌅",
+    "media_urls": ["https://example.com/upload.jpg"],
+    "geohash": "qqggy",
+    "like_count": 0,
+    "comment_count": 0,
+    "is_liked": false,
+    "created_at": "2026-01-05T10:30:00Z"
+  }
 }
 ```
 
@@ -46,6 +52,9 @@ Endpoints for creating, reading, and interacting with posts.
     "media_urls": ["https://example.com/upload.jpg"],
     "geohash": "qqggy",
     "location_name": "Kukusan",
+    "like_count": 42,
+    "comment_count": 8,
+    "is_liked": true,
     "address": {
       "village": "Kukusan",
       "city_district": "Beji",

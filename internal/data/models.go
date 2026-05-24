@@ -18,9 +18,9 @@ type User struct {
 	CoverImageURL     string     `json:"cover_image_url,omitempty"`
 	PasswordHash      string     `json:"-"`
 	LastOnline        *time.Time `json:"last_online,omitempty"`
-	LastIPAddress     string     `json:"-"`          // Don't expose in JSON
-	IsDeleted         bool       `json:"-"`          // Soft-delete flag (hidden from JSON)
-	DeletedAt         *time.Time `json:"-"`          // Soft-delete timestamp (hidden from JSON)
+	LastIPAddress     string     `json:"-"` // Don't expose in JSON
+	IsDeleted         bool       `json:"-"` // Soft-delete flag (hidden from JSON)
+	DeletedAt         *time.Time `json:"-"` // Soft-delete timestamp (hidden from JSON)
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
 }
@@ -54,12 +54,13 @@ type Post struct {
 	LocationName string           `json:"location_name,omitempty"`
 	Address      *LocationAddress `json:"address,omitempty"`
 	// Like info
-	LikeCount int64     `json:"like_count"`
-	IsLiked   bool      `json:"is_liked"` // Whether current user has liked this post
-	IPAddress string    `json:"-"`        // Don't expose in JSON
-	UserAgent string    `json:"-"`        // Don't expose in JSON
-	CreatedAt time.Time `json:"created_at"`
-	Distance  float64   `json:"distance_km,omitempty"`
+	LikeCount    int64     `json:"like_count"`
+	CommentCount int64     `json:"comment_count"`
+	IsLiked      bool      `json:"is_liked"` // Whether current user has liked this post
+	IPAddress    string    `json:"-"`        // Don't expose in JSON
+	UserAgent    string    `json:"-"`        // Don't expose in JSON
+	CreatedAt    time.Time `json:"created_at"`
+	Distance     float64   `json:"distance_km,omitempty"`
 }
 
 // CreatePostRequest represents the request body for creating a post

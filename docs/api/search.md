@@ -81,7 +81,7 @@ Performs full-text search across posts and users simultaneously using Elasticsea
 
 **Response:** `200 OK`
 
-Each item in `posts` uses the same `data.Post` shape as `GET /api/v1/feed` (`username`, `profile_picture_url`, `location_name`, `address`, `like_count`, `is_liked`, etc.). Posts are hydrated from Cassandra after Elasticsearch returns matching IDs.
+Each item in `posts` uses the same `data.Post` shape as `GET /api/v1/feed` (`username`, `profile_picture_url`, `location_name`, `address`, `like_count`, `comment_count`, `is_liked`, etc.). Posts are hydrated from Cassandra after Elasticsearch returns matching IDs.
 
 ```json
 {
@@ -97,6 +97,7 @@ Each item in `posts` uses the same `data.Post` shape as `GET /api/v1/feed` (`use
       "location_name": "Depok",
       "address": { "city": "Depok", "country": "Indonesia" },
       "like_count": 42,
+      "comment_count": 8,
       "is_liked": false,
       "created_at": "2026-01-05T10:30:00Z"
     }

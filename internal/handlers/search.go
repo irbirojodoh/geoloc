@@ -53,7 +53,7 @@ func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
 }
 
 // SearchPosts handles GET /api/v1/search/posts (legacy Cassandra-backed search)
-func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := strings.TrimSpace(c.Query("q"))
 		if query == "" {
@@ -96,6 +96,10 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 			}
 
 			likeInfo, _ := likeRepo.GetLikesForPosts(c.Request.Context(), postIDs, uid)
+			commentCounts := map[string]int64{}
+			if commentRepo != nil {
+				commentCounts, _ = commentRepo.GetCommentCountsForPosts(c.Request.Context(), postIDs)
+			}
 
 			for i := range posts {
 				if info, ok := userInfoMap[posts[i].UserID]; ok {
@@ -106,6 +110,7 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 					posts[i].IsLiked = info.IsLiked
 					posts[i].LikeCount = info.LikeCount
 				}
+				posts[i].CommentCount = commentCounts[posts[i].ID]
 			}
 		}
 
@@ -119,11 +124,12 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 
 // NewSearchHandler holds dependencies for the new ES-backed search routes.
 type NewSearchHandler struct {
-	svc      search.Service
-	session  *gocql.Session
-	userRepo *data.UserRepository
-	locRepo  *data.LocationRepository
-	likeRepo *data.LikeRepository
+	svc         search.Service
+	session     *gocql.Session
+	userRepo    *data.UserRepository
+	locRepo     *data.LocationRepository
+	likeRepo    *data.LikeRepository
+	commentRepo *data.CommentRepository
 }
 
 // NewNewSearchHandler creates a new NewSearchHandler.
@@ -133,13 +139,15 @@ func NewNewSearchHandler(
 	userRepo *data.UserRepository,
 	locRepo *data.LocationRepository,
 	likeRepo *data.LikeRepository,
+	commentRepo *data.CommentRepository,
 ) *NewSearchHandler {
 	return &NewSearchHandler{
-		svc:      svc,
-		session:  session,
-		userRepo: userRepo,
-		locRepo:  locRepo,
-		likeRepo: likeRepo,
+		svc:         svc,
+		session:     session,
+		userRepo:    userRepo,
+		locRepo:     locRepo,
+		likeRepo:    likeRepo,
+		commentRepo: commentRepo,
 	}
 }
 
@@ -159,7 +167,7 @@ func (h *NewSearchHandler) hydrateAndEnrichPosts(
 	}
 
 	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
-	EnrichPosts(ctx, hydratedPosts, h.userRepo, h.locRepo, h.likeRepo, currentUserID)
+	EnrichPosts(ctx, hydratedPosts, h.userRepo, h.locRepo, h.likeRepo, h.commentRepo, currentUserID)
 
 	if len(distanceByPostID) > 0 {
 		for i := range hydratedPosts {
