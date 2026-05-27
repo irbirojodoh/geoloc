@@ -157,6 +157,22 @@ func main() {
 	locRepo := data.NewLocationRepository(session, geoClient)
 	resetRepo := data.NewPasswordResetRepository(session)
 	modRepo := data.NewModerationRepository(session)
+	dmRepo := data.NewDMRepository(session)
+
+	var dmKafka *kafka.DMMessageProducer
+	if brokersDM := strings.Split(os.Getenv("KAFKA_BROKERS"), ","); len(brokersDM) > 0 && brokersDM[0] != "" {
+		dmKafka = kafka.NewDMMessageProducer(brokersDM)
+		defer dmKafka.Close()
+	}
+	kafkaNotifEnabled := os.Getenv("KAFKA_NOTIFICATIONS_ENABLED") == "true"
+	dmHandler := &handlers.DMHandler{
+		DM:                   dmRepo,
+		Mod:                  modRepo,
+		Redis:                rawRedisClient,
+		RedisLimiter:         redisClient,
+		DMKafka:              dmKafka,
+		KafkaNotificationsOn: kafkaNotifEnabled,
+	}
 
 	// Initialize Elasticsearch and search service
 	esClient := search.NewESClient()
@@ -300,6 +316,9 @@ func main() {
 		api.POST("/locations/follow", handlers.FollowLocation(locFollowRepo))
 		api.DELETE("/locations/:geohash/follow", handlers.UnfollowLocation(locFollowRepo))
 		api.GET("/locations/following", handlers.GetFollowedLocations(locFollowRepo))
+
+		// Direct messages (E2EE ciphertext)
+		handlers.RegisterDMRoutes(api, dmHandler)
 
 		// Notification routes
 		api.GET("/notifications", handlers.GetNotifications(notifRepo))

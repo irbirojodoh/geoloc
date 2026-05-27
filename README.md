@@ -1,150 +1,185 @@
 # Geoloc — Hyper-Local Social Media Backend
 
-A high-performance geospatial social media backend built with **Go**, **Cassandra**, and **Redis**. Designed to serve hyper-local feeds based on proximity using geohashing techniques.
+A high-performance geospatial social media backend built with **Go**, **Cassandra**, and **Redis**. Serves hyper-local feeds using geohashing, with optional **Kafka**, **Elasticsearch**, and **FCM** for search and notifications.
 
-## 🏗 Architecture
+## Architecture
 
 ```mermaid
 graph TD
-    Client[Mobile / Web Clients] -->|HTTPS| Proxy[Caddy Reverse Proxy]
-    
-    subgraph Backend [Backend Infrastructure]
-        Proxy -->|HTTP| API1[Go/Gin API Server 1]
-        Proxy -->|HTTP| API2[Go/Gin API Server 2]
-        
-        API1 -->|CQL LWT| Cassandra[(Apache Cassandra)]
-        API2 -->|CQL LWT| Cassandra
-        
-        API1 -->|TCP| Redis[(Redis)]
-        API2 -->|TCP| Redis
-        
-        API1 -->|HTTP| Nominatim[Nominatim Geocoding API]
-        API2 -->|HTTP| Nominatim
+    Client[Mobile / Web Clients] -->|HTTPS| Proxy[Reverse proxy / LB]
 
-        API1 -->|Produce/Consume| Kafka[(Apache Kafka)]
-        API2 -->|Produce/Consume| Kafka
-        
-        Kafka -->|FCM API| FCM[Firebase Cloud Messaging]
+    subgraph Backend [Backend]
+        Proxy -->|HTTP| API1[Go API]
+        Proxy -->|HTTP| API2[Go API]
 
-        API1 -->|HTTP| ES[(Elasticsearch)]
-        API2 -->|HTTP| ES
-        
-        Indexer[Search Indexer] -->|Consume: posts.created| Kafka
-        Indexer -->|Index| ES
+        API1 --> Cassandra[(Cassandra)]
+        API2 --> Cassandra
+
+        API1 --> Redis[(Redis)]
+        API2 --> Redis
+
+        API1 --> Nominatim[Nominatim / geocoding]
+        API2 --> Nominatim
+
+        API1 -->|Produce| Kafka[(Kafka)]
+        API2 -->|Produce| Kafka
+
+        Indexer[search-indexer] -->|Consume posts.created| Kafka
+        Indexer -->|Index| ES[(Elasticsearch)]
         Indexer -->|ZADD| Redis
+
+        API1 -->|Consumers when enabled| Kafka
     end
-    
-    subgraph Data Models [Cassandra Denormalized Tables]
-        Cassandra -.->|Users| T1(users)
-        Cassandra -.->|Auth| T2(password_reset_tokens)
-        Cassandra -.->|Posts| T3(posts_by_geohash)
-        Cassandra -.->|Posts| T4(posts_by_id)
-        Cassandra -.->|Social| T5(follows, comments)
-        Cassandra -.->|Moderation| T6(blocks, mutes, reports)
-    end
-    
-    subgraph Caching [Redis Keys]
-        Redis -.->|Rate Limiting| R1(Rate Limits)
-        Redis -.->|Counters| R2(Atomic Like Counters)
-        Redis -.->|Pub/Sub| R3(SSE Real-time Streams)
-        Redis -.->|Autocomplete| R4(users:autocomplete)
-    end
+
+    Kafka --> FCM[FCM push]
 ```
 
-## ✨ Features
+**Notes**
 
-- 🌍 **Geospatial Posts**: Store and query posts using Geohashing for fast proximity-based feeds.
-- 📍 **Denormalized Feed**: High-performance feed retrieval from Cassandra `posts_by_geohash` tables.
-- ⚡ **Highly Scalable**: Stateless Go API, horizontally scalable Cassandra cluster, Redis atomic counters, and **Apache Kafka** event streaming.
-- 🔔 **Event-Driven Notifications**: Asynchronous background dispatch of notifications using Kafka topics.
-- 🔴 **Real-time SSE Streams**: Live push of notifications to connected clients via Redis Pub/Sub & Server-Sent Events.
-- 📲 **Push Notifications**: Firebase Cloud Messaging (FCM) integration with persistent retry queues.
-- � **Full-Text Search**: Elasticsearch-powered search across posts and users with fuzzy matching and typo tolerance.
-- 📍 **Proximity Search**: Geo-filtered search with distance-based ranking using Haversine scoring.
-- ⚡ **Autocomplete**: Real-time username suggestions from Redis sorted sets (`ZRANGEBYLEX`).
-- #️⃣ **Hashtag Autocomplete**: Edge n-gram prefix queries on Elasticsearch with aggregation-based popularity ranking.
-- 🧠 **Smart Ranking**: Weighted scoring formula combining ES relevance (50%), recency (30%), and proximity (20%).
-- ⚙️ **Kafka-Driven Indexing**: Standalone `search-indexer` worker consuming `posts.created` topic — decoupled, scalable.
-- 🔒 **Security First**: Bcrypt password hashing, JWT authentication (no default secrets), strict CORS, and brute-force protection.
-- 🛡️ **Content Moderation**: Built-in user reporting, blocking, and muting system.
-- 🗑️ **GDPR Compliant**: Full soft-deletion support with PII anonymization.
-- 🚀 **Production Ready**: Multi-stage Dockerfiles, CI/CD pipeline, and environment separation.
+- **Cassandra** is the source of truth for posts, users, comments, devices, notifications.
+- **Redis**: rate limits, like/comment counters, notification unread cache, SSE pub/sub, username autocomplete.
+- **Elasticsearch**: full-text search; the API does **not** write ES directly — the **`search-indexer`** (`cmd/indexer`) consumes `posts.created` and `users.indexed`.
+- With **`KAFKA_NOTIFICATIONS_ENABLED=true`**, the API process also runs **notification Kafka consumers** (persister, push, nearby fanout). For large scale, consider moving those to dedicated workers.
 
-## 🛠 Tech Stack
+## Features
 
-- **Language**: Go 1.24+
-- **Web Framework**: Gin
-- **Database**: Apache Cassandra (gocql driver)
-- **Search Engine**: Elasticsearch (raw HTTP client)
-- **Message Broker**: Apache Kafka (segmentio/kafka-go)
-- **Cache & Pub/Sub**: Redis (go-redis)
-- **Push Delivery**: Firebase Cloud Messaging (FCM)
-- **Reverse Proxy**: Caddy (Auto Let's Encrypt TLS)
-- **Authentication**: JWT & OAuth (Goth)
+- **Geospatial posts**: Geohash-based proximity queries (`posts_by_geohash`).
+- **Feed**: Cursor pagination, block/mute filtering, enriched posts (`like_count`, **`comment_count`**, `is_liked`, author, location).
+- **Search**: ES-backed `/api/v1/search` and `/api/v1/search/nearby`; legacy Cassandra `/api/v1/search/posts`.
+- **Notifications**: REST list + mark read; **SSE** (`/api/v1/notifications/stream` — also carries **DM** events on channel `dm:{userId}`); **FCM** when configured.
+- **Direct messages (E2EE)**: REST + Redis/Kafka delivery; server stores ciphertext only — see [docs/api/dm.md](docs/api/dm.md).
+- **Kafka**: Search events (`posts.created`), user index (`users.indexed`), notification pipeline when enabled.
+- **Auth**: JWT (access + refresh), OAuth (Google/Apple), bcrypt passwords.
+- **Moderation**: Block, mute, reports.
 
-## 📚 API Documentation
+Full endpoint details: **[docs/api/](docs/api/README.md)** (preferred). Legacy monolith: [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
 
-All API endpoints, request/response formats, and authentication flows are documented in detail in the [API Documentation](API_DOCUMENTATION.md).
+## Tech stack
 
-## 🚀 Quick Start
+| Layer | Technology |
+|-------|------------|
+| API | Go (Gin) |
+| Database | Apache Cassandra (gocql) |
+| Cache / pub-sub | Redis |
+| Search | Elasticsearch |
+| Events | Kafka (segmentio/kafka-go) |
+| Push | Firebase Cloud Messaging |
+| Proxy (optional) | Caddy (see [Caddyfile](Caddyfile)) |
 
-### 1. Start Infrastructure
+## Quick start
 
-The easiest way to run the application is using Docker Compose:
+### Option A — Full stack in Docker (recommended for first run)
+
+Compose services use **profiles**. To run API + indexer + infra:
 
 ```bash
-docker compose up -d
+docker compose --profile app up -d
 ```
 
-This starts:
-- The Go API backend (`geoloc_api`)
-- Caddy reverse proxy (`geoloc_caddy`)
-- Apache Cassandra (`geoloc_cassandra`)
-- Redis (`geoloc_redis`)
-- Apache Kafka & Kafka UI (`kafka`, `kafka-ui`)
-- Elasticsearch (`geoloc_elasticsearch`)
-- Search Indexer worker (`geoloc_search_indexer`)
-
-### 2. Apply Cassandra Migrations
-
-Ensure the database schema is applied. If it's your first time, you might need to apply migrations manually or use a migration tool:
+Infrastructure only (run API locally with `go run cmd/api/main.go`):
 
 ```bash
-cqlsh -f migrations/cassandra_schema.cql
-cqlsh -f migrations/003_mvp_features.cql
+docker compose --profile dev up -d
 ```
 
-### 3. Access the API
+Then:
 
-The API will be available via Caddy on port `8080` (or `443` with TLS depending on your config).
+1. Ensure schema is applied (see [docs/deployment/docker.md](docs/deployment/docker.md) — `cassandra-db-init` or manual `cqlsh`).
+2. API: [http://localhost:8080](http://localhost:8080) (container `geoloc-api`).
+3. Health: `curl http://localhost:8080/health`
 
-Test the health endpoint:
+**TLS + Caddy** (optional):
+
 ```bash
-curl http://localhost:8080/health
+docker compose --profile app --profile with-proxy up -d
 ```
 
-## ⚙️ Environment Variables
+### Option B — Local Go + Docker infra
 
-Copy `.env.development` to `.env` to configure your environment:
+```bash
+docker compose --profile dev up -d
+```
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_ENV` | `development` | `development`, `staging`, or `production` |
-| `CASSANDRA_HOSTS` | `localhost` | Comma-separated Cassandra hosts |
-| `REDIS_HOST` | `localhost` | Redis host |
-| `JWT_SECRET` | (required) | Secret key for signing JWTs |
-| `ALLOWED_ORIGINS`| `http://localhost:3000` | CORS allowed origins |
-| `ELASTICSEARCH_URL` | `http://localhost:9200` | Elasticsearch HTTP endpoint |
-| `ELASTICSEARCH_INDEX_POSTS` | `posts` | ES index name for posts |
-| `ELASTICSEARCH_INDEX_USERS` | `users` | ES index name for users |
-| `SEARCH_MAX_RESULTS` | `20` | Max results per search query |
-| `SEARCH_DEFAULT_RADIUS_KM` | `5` | Default proximity search radius |
+Copy env from [docs/environment.md](docs/environment.md). Minimum for search indexing:
 
-## 🧪 Development
+- `KAFKA_BROKERS=127.0.0.1:9092` (use `127.0.0.1` on macOS Docker)
+- `ELASTICSEARCH_URL=http://localhost:9200`
 
-### Run Tests
-The project includes a comprehensive E2E test suite utilizing Testcontainers:
+Then in separate terminals:
+
+```bash
+go run cmd/indexer/main.go          # required for new posts to appear in ES search
+go run cmd/api/main.go
+```
+
+**One-off backfills** (when needed):
+
+```bash
+go run cmd/backfill-search/main.go           # historical posts → Elasticsearch
+go run cmd/backfill-comment-counts/main.go # Cassandra comment_counts → Redis keys
+```
+
+## Environment variables
+
+See **[docs/environment.md](docs/environment.md)** for the full list. Highlights:
+
+| Variable | Role |
+|----------|------|
+| `CASSANDRA_HOST`, `CASSANDRA_PORT`, `CASSANDRA_KEYSPACE` | Database |
+| `REDIS_HOST`, `REDIS_PORT` | Counters, SSE, rate limit |
+| `JWT_SECRET` | **Required** — JWT signing |
+| `KAFKA_BROKERS` | Enables `posts.created` / `users.indexed` producers on API |
+| `KAFKA_NOTIFICATIONS_ENABLED` | Notification Kafka consumers + topics in API |
+| `ELASTICSEARCH_URL`, `ELASTICSEARCH_INDEX_POSTS`, `ELASTICSEARCH_INDEX_USERS` | Search |
+| `GIN_MODE=release`, `ALLOWED_ORIGINS`, `BASE_URL` | Production hardening |
+
+## Documentation
+
+| Doc | Content |
+|-----|---------|
+| [docs/api/](docs/api/README.md) | Per-domain API reference |
+| [docs/environment.md](docs/environment.md) | Env vars |
+| [docs/deployment/docker.md](docs/deployment/docker.md) | Compose profiles, services, backfills |
+| [docs/deployment/production.md](docs/deployment/production.md) | Production checklist |
+| [docs/architecture/overview.md](docs/architecture/overview.md) | System overview |
+| [docs/client/](docs/client/) | Frontend integration notes |
+
+## Development
+
+### Format & build
+
+```bash
+gofmt -w .
+go build -o /dev/null ./cmd/api
+```
+
+### Tests
 
 ```bash
 go test ./...
 ```
+
+Some packages expect Cassandra/Redis or have known test fixture issues; use targeted runs when needed:
+
+```bash
+go test ./internal/handlers ./internal/auth -count=1
+```
+
+## Project layout
+
+```
+cmd/
+  api/                    # HTTP API
+  indexer/                # Search indexer (Kafka → ES)
+  backfill-search/        # ES backfill from Cassandra
+  backfill-comment-counts/ # Redis comment_count warm-up
+internal/
+  handlers/               # HTTP handlers
+  data/                   # Cassandra repositories
+  notifications/          # Dispatcher, SSE, Kafka consumers
+  search/                 # ES client, indexing events
+  push/                   # FCM
+docs/                     # Human-readable API & deployment docs
+migrations/               # CQL schema
+```
+
