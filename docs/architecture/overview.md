@@ -24,10 +24,10 @@ High-level overview of the Geoloc system architecture.
 │  │   Auth   │  │  Posts   │  │  Users   │  │  Search  │  │  Geo   │ │
 │  │ Handlers │  │ Handlers │  │ Handlers │  │ Handlers │  │Handlers│ │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  └────────┘ │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │                    Middleware Layer                               │ │
-│  │   (Auth, Rate Limiting, CORS, Request Logging, Timeout)          │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
+│  ┌──────────┐  ┌──────────────────────────────────────────────────┐ │
+│  │    DM    │  │                    Middleware Layer               │ │
+│  │ Handlers │  │   (Auth, Rate Limiting, CORS, Request Logging)    │ │
+│  └──────────┘  └──────────────────────────────────────────────────┘ │
 └───────────────┬───────────────────┬───────────────────┬───────────────┘
                 │                   │                   │
           ┌─────┴─────┐       ┌─────┴─────┐       ┌─────┴─────┐
@@ -86,6 +86,16 @@ High-level overview of the Geoloc system architecture.
 
 For posts created before indexing was enabled, run `go run cmd/backfill-search/main.go` once.
 
+### Direct message (E2EE)
+
+1. Client generates X25519 keys locally and registers public key via `PUT /api/v1/dm/keys`
+2. Client opens shared SSE stream (`GET /api/v1/notifications/stream`)
+3. Client creates or resumes 1:1 conversation; encrypts messages client-side (ECDH + HKDF + AES-GCM)
+4. Server stores ciphertext only, fans out via Redis `dm:{userID}` to SSE; optionally publishes to Kafka `dm_messages` when recipient is offline
+5. History and multi-device: versioned public keys + optional identity backup (`migrations/007_dm.cql`, `008_dm_multidevice.cql`)
+
+See [Direct messages architecture](./dm.md) for full design.
+
 ## Scalability
 
 ### Cassandra
@@ -98,5 +108,12 @@ For posts created before indexing was enabled, run `go run cmd/backfill-search/m
 - JWT tokens require no server-side session storage
 
 ### Rate Limiting
-- Per-IP rate limiting (100 req/min)
+- Per-IP rate limiting (100 req/min; 1000/min in development)
+- DM write routes: 60 req/min per authenticated user
 - Nominatim API: 1 req/sec (cached)
+
+## Further reading
+
+- [Direct messages (E2EE)](./dm.md) — ciphertext relay, SSE delivery, multi-device
+- [Database schema](./database.md) — Cassandra tables including DM
+- [Geohashing](./geohashing.md) — location-based feed queries

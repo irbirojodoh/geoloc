@@ -22,7 +22,9 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 
 ### Architecture
 - [System Overview](./architecture/overview.md) - High-level architecture
+- [System Design](./architecture/system_design.md) - Data flows and component diagram
 - [Database Schema](./architecture/database.md) - Cassandra tables and design
+- [Direct messages (E2EE)](./architecture/dm.md) - Encrypted DM architecture
 - [Geohashing](./architecture/geohashing.md) - Location-based queries
 
 ### Deployment

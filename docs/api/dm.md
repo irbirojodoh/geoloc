@@ -2,6 +2,8 @@
 
 End-to-end encrypted direct messaging: the API stores **only ciphertext** (base64) and a **GCM nonce** (base64). The server never receives private keys or plaintext message bodies.
 
+**Architecture:** [Direct messages (E2EE)](../architecture/dm.md) — component layout, data flows, Cassandra design.
+
 **Postman:** Import `tests/postman/Geoloc_API.postman_collection.json` and use the **💬 Direct Messages (E2EE)** folder (variables: `peerUserId`, `conversationId`, `messageId`, `dmCursor`).
 
 ## Endpoint summary

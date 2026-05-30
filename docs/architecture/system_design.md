@@ -30,6 +30,7 @@ graph TD
         API -->|Read/Write| Cass[(Cassandra DB)]
         API -->|Cache / Atomic / PubSub| Redis[(Redis)]
         API -->|Produce Events| Kafka[(Kafka Event Bus)]
+        API -->|DM Events offline| Kafka
     end
     
     subgraph Asynchronous Workers (Consumer Groups)
@@ -38,11 +39,14 @@ graph TD
         Kafka -->|notification.push.dispatch| PushDispatch[FCM Push Dispatch]
         Kafka -->|notification.nearby.fanout| NearbyFanout[Nearby Geospatial Fan-out]
         Kafka -->|posts.created| SearchIndexer[Search Indexer]
+        Kafka -->|dm_messages| DMPushHook[DM Push Hook future]
         SearchIndexer --> ES[(Elasticsearch)]
     end
     
     Persister -->|Persist| Cass
     SSEFanout -->|Publish| Redis
+    API -->|Publish dm events| Redis
+    Redis -->|Pub/Sub dm:userId| API
     PushDispatch -->|Send| FCM[Firebase Cloud Messaging]
     NearbyFanout -->|Query Nearby| Cass
     NearbyFanout -->|Produce Individual Events| Kafka
@@ -97,6 +101,19 @@ Creating a post triggers a complex set of background events to alert nearby user
 2. **FCM API**: It utilizes the Firebase Admin Go SDK to deliver the payload to Apple (APNs) and Google (FCM).
 3. **Failure Handling**: If the FCM API returns an error or timeout, the consumer wraps the job in a `PushRetryJob` and publishes it to `notification.push.retry`.
 4. **Exponential Backoff**: The `notif-push-retry` consumer reads the retry queue. If the `RetryAfter` timestamp hasn't been reached, it delays processing. Once ready, it pushes it back to the main dispatch queue up to 3 times.
+
+### F. Direct messages (E2EE)
+
+Encrypted 1:1 chat reuses the notification SSE pipe and Cassandra denormalization patterns.
+
+1. **Key registration**: Client generates X25519 keys locally. `PUT /api/v1/dm/keys` stores the public key in `user_public_keys` (versioned). Optional `PUT /api/v1/dm/keys/backup` stores a passphrase-wrapped identity blob for multi-device restore.
+2. **Conversation open**: `POST /api/v1/dm/conversations` derives a deterministic `conversation_id` from the sorted participant UUID pair, inserts canonical + inbox rows (after block check).
+3. **Send**: Client encrypts with ECDH + HKDF + AES-256-GCM. API validates ciphertext shape, verifies recipient `key_version`, records `sender_key_version`, writes a logged batch to `dm_messages` + inbox bump.
+4. **Real-time**: Handler publishes JSON to Redis `dm:{recipientId}`. The active SSE connection (subscribed to `dm:{userId}`) delivers `dm_new_message` events. Presence key `sse:online:{userId}` gates Kafka fallback.
+5. **Offline hook**: If recipient is not SSE-online (or `KAFKA_NOTIFICATIONS_ENABLED=true`), API publishes to Kafka topic `dm_messages` for a future push consumer.
+6. **History**: `GET .../messages` paginates ciphertext rows; clients fetch historical public keys via `GET /dm/keys/:userId/versions` or `?key_version=N` using `sender_key_version` on each message.
+
+Full design: [Direct messages architecture](./dm.md). API reference: [Direct messages API](../api/dm.md).
 
 ---
 
