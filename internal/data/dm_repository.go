@@ -30,9 +30,15 @@ var (
 type DMRepository interface {
 	UpsertPublicKey(ctx context.Context, userID gocql.UUID, version int, pubKey string) error
 	GetPublicKey(ctx context.Context, userID gocql.UUID) (*models.PublicKeyRecord, error)
+	GetPublicKeyVersion(ctx context.Context, userID gocql.UUID, version int) (*models.PublicKeyRecord, error)
+	ListPublicKeyVersions(ctx context.Context, userID gocql.UUID) ([]models.PublicKeyRecord, error)
+
+	PutIdentityBackup(ctx context.Context, backup *models.DMIdentityBackup) error
+	GetIdentityBackup(ctx context.Context, userID gocql.UUID, backupVersion int) (*models.DMIdentityBackup, error)
 
 	GetConversation(ctx context.Context, conversationID gocql.UUID) (*models.DMConversation, error)
 	GetOrCreateConversation(ctx context.Context, userA, userB gocql.UUID) (*models.DMConversation, error)
+	DeleteConversation(ctx context.Context, conversationID, userID gocql.UUID) error
 	ListConversations(ctx context.Context, userID gocql.UUID, pageState []byte, limit int) ([]models.DMConversationSummary, []byte, error)
 
 	SendMessage(ctx context.Context, msg *models.DMMessage) error
@@ -100,6 +106,89 @@ func (r *dmRepository) GetPublicKey(ctx context.Context, userID gocql.UUID) (*mo
 		return nil, err
 	}
 	return &rec, nil
+}
+
+// GetPublicKeyVersion returns a specific public key version for a user.
+func (r *dmRepository) GetPublicKeyVersion(ctx context.Context, userID gocql.UUID, version int) (*models.PublicKeyRecord, error) {
+	var rec models.PublicKeyRecord
+	err := r.session.Query(`
+		SELECT user_id, key_version, public_key, created_at
+		FROM user_public_keys WHERE user_id = ? AND key_version = ?
+	`, userID, version).WithContext(ctx).Scan(&rec.UserID, &rec.KeyVersion, &rec.PublicKey, &rec.CreatedAt)
+	if err == gocql.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &rec, nil
+}
+
+// ListPublicKeyVersions returns all uploaded public key versions for a user (newest first).
+func (r *dmRepository) ListPublicKeyVersions(ctx context.Context, userID gocql.UUID) ([]models.PublicKeyRecord, error) {
+	iter := r.session.Query(`
+		SELECT user_id, key_version, public_key, created_at
+		FROM user_public_keys WHERE user_id = ?
+	`, userID).WithContext(ctx).Iter()
+
+	var out []models.PublicKeyRecord
+	var rec models.PublicKeyRecord
+	for iter.Scan(&rec.UserID, &rec.KeyVersion, &rec.PublicKey, &rec.CreatedAt) {
+		out = append(out, rec)
+	}
+	if err := iter.Close(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PutIdentityBackup stores or replaces an encrypted identity backup row.
+func (r *dmRepository) PutIdentityBackup(ctx context.Context, backup *models.DMIdentityBackup) error {
+	if backup.UpdatedAt.IsZero() {
+		backup.UpdatedAt = time.Now().UTC()
+	}
+	var existingCT string
+	err := r.session.Query(`
+		SELECT ciphertext FROM user_dm_identity_backups WHERE user_id = ? AND backup_version = ?
+	`, backup.UserID, backup.BackupVersion).WithContext(ctx).Scan(&existingCT)
+	if err == nil && existingCT == backup.Ciphertext {
+		return nil
+	}
+	if err != nil && err != gocql.ErrNotFound {
+		return err
+	}
+	return r.session.Query(`
+		INSERT INTO user_dm_identity_backups (user_id, backup_version, ciphertext, nonce, kdf_salt, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, backup.UserID, backup.BackupVersion, backup.Ciphertext, backup.Nonce, backup.KdfSalt, backup.UpdatedAt).WithContext(ctx).Exec()
+}
+
+// GetIdentityBackup loads a backup; backupVersion 0 means latest.
+func (r *dmRepository) GetIdentityBackup(ctx context.Context, userID gocql.UUID, backupVersion int) (*models.DMIdentityBackup, error) {
+	var b models.DMIdentityBackup
+	var err error
+	if backupVersion > 0 {
+		err = r.session.Query(`
+			SELECT user_id, backup_version, ciphertext, nonce, kdf_salt, updated_at
+			FROM user_dm_identity_backups WHERE user_id = ? AND backup_version = ?
+		`, userID, backupVersion).WithContext(ctx).Scan(
+			&b.UserID, &b.BackupVersion, &b.Ciphertext, &b.Nonce, &b.KdfSalt, &b.UpdatedAt,
+		)
+	} else {
+		err = r.session.Query(`
+			SELECT user_id, backup_version, ciphertext, nonce, kdf_salt, updated_at
+			FROM user_dm_identity_backups WHERE user_id = ? LIMIT 1
+		`, userID).WithContext(ctx).Scan(
+			&b.UserID, &b.BackupVersion, &b.Ciphertext, &b.Nonce, &b.KdfSalt, &b.UpdatedAt,
+		)
+	}
+	if err == gocql.ErrNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
 }
 
 // GetConversation loads a conversation by id.
@@ -171,7 +260,42 @@ func (r *dmRepository) GetOrCreateConversation(ctx context.Context, userA, userB
 	if existing.ParticipantA != pa || existing.ParticipantB != pb {
 		return nil, fmt.Errorf("dm conversation participant mismatch")
 	}
+	if err := r.ensureInboxRow(ctx, userA, existing); err != nil {
+		return nil, err
+	}
 	return existing, nil
+}
+
+func otherUserID(conv *models.DMConversation, self gocql.UUID) gocql.UUID {
+	if conv.ParticipantA == self {
+		return conv.ParticipantB
+	}
+	return conv.ParticipantA
+}
+
+// ensureInboxRow puts the conversation back in a user's inbox (idempotent).
+func (r *dmRepository) ensureInboxRow(ctx context.Context, userID gocql.UUID, conv *models.DMConversation) error {
+	return r.session.Query(`
+		INSERT INTO dm_conversations_by_user (user_id, last_message_at, conversation_id, other_user_id)
+		VALUES (?, ?, ?, ?)
+	`, userID, conv.LastMessageAt, conv.ConversationID, otherUserID(conv, userID)).WithContext(ctx).Exec()
+}
+
+// DeleteConversation removes the conversation from the requester's inbox only.
+// Messages and the canonical conversation row are kept for the other participant.
+// A new message or GetOrCreateConversation restores the requester's inbox row.
+func (r *dmRepository) DeleteConversation(ctx context.Context, conversationID, userID gocql.UUID) error {
+	conv, err := r.GetConversation(ctx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conv.ParticipantA != userID && conv.ParticipantB != userID {
+		return ErrDMNotParticipant
+	}
+	return r.session.Query(`
+		DELETE FROM dm_conversations_by_user
+		WHERE user_id = ? AND last_message_at = ? AND conversation_id = ?
+	`, userID, conv.LastMessageAt, conversationID).WithContext(ctx).Exec()
 }
 
 // ListConversations returns inbox rows newest-first with Cassandra paging.
@@ -255,9 +379,9 @@ func (r *dmRepository) SendMessage(ctx context.Context, msg *models.DMMessage) e
 
 	batch := r.session.NewBatch(gocql.LoggedBatch).WithContext(ctx)
 	batch.Query(`
-		INSERT INTO dm_messages (conversation_id, message_id, sender_id, ciphertext, nonce, key_version, sent_at, deleted_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, msg.ConversationID, msg.MessageID, msg.SenderID, msg.Ciphertext, msg.Nonce, msg.KeyVersion, msg.SentAt, nil)
+		INSERT INTO dm_messages (conversation_id, message_id, sender_id, ciphertext, nonce, key_version, sender_key_version, sent_at, deleted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, msg.ConversationID, msg.MessageID, msg.SenderID, msg.Ciphertext, msg.Nonce, msg.KeyVersion, msg.SenderKeyVersion, msg.SentAt, nil)
 
 	batch.Query(`
 		UPDATE dm_conversations SET last_message_at = ? WHERE conversation_id = ?
@@ -288,7 +412,7 @@ func (r *dmRepository) ListMessages(ctx context.Context, conversationID gocql.UU
 		limit = 50
 	}
 	q := r.session.Query(`
-		SELECT message_id, sender_id, ciphertext, nonce, key_version, sent_at, deleted_at
+		SELECT message_id, sender_id, ciphertext, nonce, key_version, sender_key_version, sent_at, deleted_at
 		FROM dm_messages WHERE conversation_id = ?
 	`, conversationID).WithContext(ctx).PageSize(limit).PageState(pageState)
 
@@ -298,18 +422,20 @@ func (r *dmRepository) ListMessages(ctx context.Context, conversationID gocql.UU
 	var sender gocql.UUID
 	var ct, nonce string
 	var kv int
+	var senderKV int
 	var sentAt time.Time
 	var deletedAt *time.Time
-	for iter.Scan(&mid, &sender, &ct, &nonce, &kv, &sentAt, &deletedAt) {
+	for iter.Scan(&mid, &sender, &ct, &nonce, &kv, &senderKV, &sentAt, &deletedAt) {
 		out = append(out, models.DMMessage{
-			ConversationID: conversationID,
-			MessageID:      mid,
-			SenderID:       sender,
-			Ciphertext:     ct,
-			Nonce:          nonce,
-			KeyVersion:     kv,
-			SentAt:         sentAt,
-			DeletedAt:      deletedAt,
+			ConversationID:   conversationID,
+			MessageID:        mid,
+			SenderID:         sender,
+			Ciphertext:       ct,
+			Nonce:            nonce,
+			KeyVersion:       kv,
+			SenderKeyVersion: senderKV,
+			SentAt:           sentAt,
+			DeletedAt:        deletedAt,
 		})
 	}
 	next := iter.PageState()

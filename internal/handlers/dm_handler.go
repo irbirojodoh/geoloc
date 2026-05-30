@@ -116,6 +116,29 @@ func validateOpaqueCiphertext(ciphertextB64, nonceB64 string) error {
 	return nil
 }
 
+func validateIdentityBackup(ciphertextB64, nonceB64, kdfSaltB64 string) error {
+	if err := validateOpaqueCiphertext(ciphertextB64, nonceB64); err != nil {
+		return err
+	}
+	salt, err := base64.StdEncoding.DecodeString(kdfSaltB64)
+	if err != nil {
+		return errors.New("invalid_kdf_salt_base64")
+	}
+	if len(salt) < 16 {
+		return errors.New("invalid_kdf_salt_length")
+	}
+	return nil
+}
+
+func publicKeyResponse(rec *models.PublicKeyRecord) gin.H {
+	return gin.H{
+		"user_id":     rec.UserID.String(),
+		"public_key":  rec.PublicKey,
+		"key_version": rec.KeyVersion,
+		"created_at":  rec.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
 func (h *DMHandler) recipientOnline(ctx context.Context, userID string) bool {
 	if h.Redis == nil {
 		return false
@@ -164,6 +187,8 @@ func RegisterDMRoutes(api *gin.RouterGroup, h *DMHandler) {
 	}
 	dm := api.Group("/dm")
 	{
+		dm.GET("/keys/backup", h.getIdentityBackup)
+		dm.GET("/keys/:userID/versions", h.listPublicKeyVersions)
 		dm.GET("/keys/:userID", h.getPublicKey)
 		dm.GET("/conversations", h.listConversations)
 		dm.GET("/conversations/:id/messages", h.listMessages)
@@ -175,8 +200,10 @@ func RegisterDMRoutes(api *gin.RouterGroup, h *DMHandler) {
 	}
 	{
 		write.PUT("/keys", h.putPublicKey)
+		write.PUT("/keys/backup", h.putIdentityBackup)
 		write.POST("/conversations", h.postConversation)
 		write.POST("/conversations/:id/messages", h.postMessage)
+		write.DELETE("/conversations/:id", h.deleteConversation)
 		write.DELETE("/messages/:messageID", h.deleteMessage)
 		write.PUT("/conversations/:id/read", h.putRead)
 	}
@@ -218,7 +245,18 @@ func (h *DMHandler) getPublicKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_uuid"})
 		return
 	}
-	rec, err := h.DM.GetPublicKey(c.Request.Context(), target)
+	ctx := c.Request.Context()
+	var rec *models.PublicKeyRecord
+	if vStr := strings.TrimSpace(c.Query("key_version")); vStr != "" {
+		v, err := strconv.Atoi(vStr)
+		if err != nil || v < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_key_version"})
+			return
+		}
+		rec, err = h.DM.GetPublicKeyVersion(ctx, target, v)
+	} else {
+		rec, err = h.DM.GetPublicKey(ctx, target)
+	}
 	if err != nil {
 		slog.Error("dm get public key failed", "target_user_id", targetStr, "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
@@ -228,11 +266,102 @@ func (h *DMHandler) getPublicKey(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "public_key_not_found"})
 		return
 	}
+	c.JSON(http.StatusOK, publicKeyResponse(rec))
+}
+
+func (h *DMHandler) listPublicKeyVersions(c *gin.Context) {
+	targetStr := strings.TrimSpace(c.Param("userID"))
+	target, err := gocql.ParseUUID(targetStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_uuid"})
+		return
+	}
+	rows, err := h.DM.ListPublicKeyVersions(c.Request.Context(), target)
+	if err != nil {
+		slog.Error("dm list public key versions failed", "target_user_id", targetStr, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	out := make([]gin.H, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, publicKeyResponse(&r))
+	}
+	c.JSON(http.StatusOK, gin.H{"versions": out})
+}
+
+type putIdentityBackupRequest struct {
+	BackupVersion int    `json:"backup_version"`
+	Ciphertext    string `json:"ciphertext"`
+	Nonce         string `json:"nonce"`
+	KdfSalt       string `json:"kdf_salt"`
+}
+
+func (h *DMHandler) putIdentityBackup(c *gin.Context) {
+	uidStr := auth.GetUserID(c)
+	self, err := gocql.ParseUUID(uidStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	var req putIdentityBackupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_body"})
+		return
+	}
+	if req.BackupVersion < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_backup_version"})
+		return
+	}
+	if err := validateIdentityBackup(req.Ciphertext, req.Nonce, req.KdfSalt); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	backup := &models.DMIdentityBackup{
+		UserID:        self,
+		BackupVersion: req.BackupVersion,
+		Ciphertext:    req.Ciphertext,
+		Nonce:         req.Nonce,
+		KdfSalt:       req.KdfSalt,
+	}
+	if err := h.DM.PutIdentityBackup(c.Request.Context(), backup); err != nil {
+		slog.Error("dm put identity backup failed", "user_id", uidStr, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *DMHandler) getIdentityBackup(c *gin.Context) {
+	uidStr := auth.GetUserID(c)
+	self, err := gocql.ParseUUID(uidStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	backupVersion := 0
+	if vStr := strings.TrimSpace(c.Query("backup_version")); vStr != "" {
+		backupVersion, err = strconv.Atoi(vStr)
+		if err != nil || backupVersion < 1 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_backup_version"})
+			return
+		}
+	}
+	b, err := h.DM.GetIdentityBackup(c.Request.Context(), self, backupVersion)
+	if err != nil {
+		slog.Error("dm get identity backup failed", "user_id", uidStr, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	if b == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "backup_not_found"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":      rec.UserID.String(),
-		"public_key":   rec.PublicKey,
-		"key_version":  rec.KeyVersion,
-		"created_at":   rec.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"backup_version": b.BackupVersion,
+		"ciphertext":     b.Ciphertext,
+		"nonce":          b.Nonce,
+		"kdf_salt":       b.KdfSalt,
+		"updated_at":     b.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	})
 }
 
@@ -286,6 +415,43 @@ func (h *DMHandler) postConversation(c *gin.Context) {
 			"last_message_at": conv.LastMessageAt.UTC().Format(time.RFC3339Nano),
 		},
 	})
+}
+
+func (h *DMHandler) deleteConversation(c *gin.Context) {
+	selfStr := auth.GetUserID(c)
+	self, err := gocql.ParseUUID(selfStr)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	convID, ok := parseUUIDParam(c, "id")
+	if !ok {
+		return
+	}
+	conv, err := h.DM.GetConversation(c.Request.Context(), convID)
+	if err != nil {
+		if errors.Is(err, data.ErrDMConversationNotFound) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		slog.Error("dm get conversation failed", "conversation_id", convID.String(), "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	if assertParticipant(conv, self) != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	if err := h.DM.DeleteConversation(c.Request.Context(), convID, self); err != nil {
+		if errors.Is(err, data.ErrDMNotParticipant) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		slog.Error("dm delete conversation failed", "conversation_id", convID.String(), "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h *DMHandler) listConversations(c *gin.Context) {
@@ -374,12 +540,13 @@ func (h *DMHandler) listMessages(c *gin.Context) {
 	out := make([]gin.H, 0, len(msgs))
 	for _, m := range msgs {
 		item := gin.H{
-			"message_id":  m.MessageID.String(),
-			"sender_id":   m.SenderID.String(),
-			"ciphertext":  m.Ciphertext,
-			"nonce":       m.Nonce,
-			"key_version": m.KeyVersion,
-			"sent_at":     m.SentAt.UTC().Format(time.RFC3339Nano),
+			"message_id":         m.MessageID.String(),
+			"sender_id":          m.SenderID.String(),
+			"ciphertext":         m.Ciphertext,
+			"nonce":              m.Nonce,
+			"key_version":        m.KeyVersion,
+			"sender_key_version": m.SenderKeyVersion,
+			"sent_at":            m.SentAt.UTC().Format(time.RFC3339Nano),
 		}
 		if m.DeletedAt != nil {
 			item["deleted_at"] = m.DeletedAt.UTC().Format(time.RFC3339Nano)
@@ -466,12 +633,23 @@ func (h *DMHandler) postMessage(c *gin.Context) {
 		})
 		return
 	}
+	senderPK, err := h.DM.GetPublicKey(c.Request.Context(), self)
+	if err != nil {
+		slog.Error("dm get sender key failed", "sender_id", selfStr, "error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		return
+	}
+	if senderPK == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "sender_has_no_public_key"})
+		return
+	}
 	msg := &models.DMMessage{
-		ConversationID: convID,
-		SenderID:       self,
-		Ciphertext:     req.Ciphertext,
-		Nonce:          req.Nonce,
-		KeyVersion:     req.KeyVersion,
+		ConversationID:   convID,
+		SenderID:         self,
+		Ciphertext:       req.Ciphertext,
+		Nonce:            req.Nonce,
+		KeyVersion:       req.KeyVersion,
+		SenderKeyVersion: senderPK.KeyVersion,
 	}
 	if err := h.DM.SendMessage(c.Request.Context(), msg); err != nil {
 		if errors.Is(err, data.ErrDMConversationNotFound) {
@@ -485,15 +663,16 @@ func (h *DMHandler) postMessage(c *gin.Context) {
 
 	sentAt := msg.SentAt.UTC().Format(time.RFC3339Nano)
 	evt := gin.H{
-		"type":             "dm_new_message",
-		"event":            "dm.message.created",
-		"conversation_id":  convID.String(),
-		"message_id":       msg.MessageID.String(),
-		"sender_id":        self.String(),
-		"ciphertext":       req.Ciphertext,
-		"nonce":            req.Nonce,
-		"key_version":      req.KeyVersion,
-		"sent_at":          sentAt,
+		"type":               "dm_new_message",
+		"event":              "dm.message.created",
+		"conversation_id":    convID.String(),
+		"message_id":         msg.MessageID.String(),
+		"sender_id":          self.String(),
+		"ciphertext":         req.Ciphertext,
+		"nonce":              req.Nonce,
+		"key_version":        req.KeyVersion,
+		"sender_key_version": senderPK.KeyVersion,
+		"sent_at":            sentAt,
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

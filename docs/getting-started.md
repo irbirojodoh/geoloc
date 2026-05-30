@@ -100,5 +100,6 @@ curl -s http://localhost:9200/posts/_count
 - [Environment Configuration](./environment.md) - Configure environment variables
 - [Search API](./api/search.md) - Elasticsearch search and indexing pipeline
 - [API Overview](./api/README.md) - Learn about the API
+- [Direct messages (E2EE)](./api/dm.md) - Encrypted DMs (`migrations/007_dm.cql`, `008_dm_multidevice.cql`)
 - [Docker Deployment](./deployment/docker.md) - Full Docker Compose reference
 - [Flutter Client Guide](./client/flutter.md) - Build the mobile app

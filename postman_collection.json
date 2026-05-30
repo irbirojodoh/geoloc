@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Geoloc API",
+    "name": "Geoloc API v2",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -10,6 +10,18 @@
     },
     {
       "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "peerUserId",
+      "value": ""
+    },
+    {
+      "key": "conversationId",
+      "value": ""
+    },
+    {
+      "key": "messageId",
       "value": ""
     }
   ],
@@ -405,6 +417,128 @@
               "query": [
                 {"key": "q", "value": "hello"},
                 {"key": "limit", "value": "20"}
+              ]
+            },
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Direct Messages (Protected)",
+      "item": [
+        {
+          "name": "Upload Public Key",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/v1/dm/keys",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"cHVibGljLWtleS1kYXRh\",\n  \"key_version\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Peer Public Key",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/dm/keys/{{peerUserId}}",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Start Conversation",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/dm/conversations",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{peerUserId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Conversations",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/dm/conversations?limit=20",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "List Messages",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages?limit=50",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ciphertext\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\n  \"nonce\": \"AAAAAAAAAAAAAAAA\",\n  \"key_version\": 1\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Conversation (Inbox)",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"}
+            ]
+          }
+        },
+        {
+          "name": "Mark Conversation Read",
+          "request": {
+            "method": "PUT",
+            "url": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/read",
+            "header": [
+              {"key": "Authorization", "value": "Bearer {{accessToken}}"},
+              {"key": "Content-Type", "value": "application/json"}
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"last_read_id\": \"{{messageId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete Message",
+          "request": {
+            "method": "DELETE",
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/messages/{{messageId}}?conversation_id={{conversationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "messages", "{{messageId}}"],
+              "query": [
+                {"key": "conversation_id", "value": "{{conversationId}}"}
               ]
             },
             "header": [

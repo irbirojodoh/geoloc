@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Geoloc API — Complete Collection",
-    "description": "# Geoloc API — Complete Postman Collection\n\nA full test collection for the Geoloc hyper-local social media API.\n\n## 🚀 Getting Started\n\n1. **Start the infrastructure** — `docker compose up -d`\n2. **Set variables** — Click the eye icon 👁️ and set:\n   - `baseUrl`: `http://localhost:8080`\n   - `accessToken`: _(leave empty — will be filled after login)_\n3. **Authenticate** — Run `Auth > Register` or `Auth > Login`, then copy the `access_token` into the `accessToken` variable\n4. **Explore!** — All requests are pre-configured with auth headers\n\n## 📋 Collection Variables\n\n| Variable | Description |\n|----------|-------------|\n| `baseUrl` | API base URL (default: `http://localhost:8080`) |\n| `accessToken` | JWT access token (auto-filled after login) |\n| `postId` | UUID of a created post (for child requests) |\n| `userId` | UUID of a user (for follow/block etc.) |\n| `commentId` | UUID of a comment (for replies/likes) |\n| `geohash` | Geohash prefix for location operations |\n| `notificationId` | UUID of a notification |\n| `deviceToken` | FCM push notification token |",
+    "description": "# Geoloc API — Complete Postman Collection\n\nA full test collection for the Geoloc hyper-local social media API.\n\n## 🚀 Getting Started\n\n1. **Start the infrastructure** — `docker compose up -d`\n2. **Set variables** — Click the eye icon 👁️ and set:\n   - `baseUrl`: `http://localhost:8080`\n   - `accessToken`: _(leave empty — will be filled after login)_\n3. **Authenticate** — Run `Auth > Register` or `Auth > Login`, then copy the `access_token` into the `accessToken` variable\n4. **Explore!** — All requests are pre-configured with auth headers\n\n## 📋 Collection Variables\n\n| Variable | Description |\n|----------|-------------|\n| `baseUrl` | API base URL (default: `http://localhost:8080`) |\n| `accessToken` | JWT access token (auto-filled after login) |\n| `postId` | UUID of a created post (for child requests) |\n| `userId` | UUID of a user (for follow/block etc.) |\n| `commentId` | UUID of a comment (for replies/likes) |\n| `geohash` | Geohash prefix for location operations |\n| `notificationId` | UUID of a notification |\n| `deviceToken` | FCM push notification token |\n| `peerUserId` | UUID of DM peer (set manually or from another user) |\n| `conversationId` | DM conversation UUID (auto-set by **Start Conversation**) |\n| `messageId` | Last DM message UUID (auto-set by **Send Message**) |\n| `dmCursor` | Pagination cursor from `next_cursor` on inbox/messages |",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -43,6 +43,26 @@
     {
       "key": "deviceToken",
       "value": "fcm-device-token-here",
+      "type": "string"
+    },
+    {
+      "key": "peerUserId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "conversationId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "messageId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "dmCursor",
+      "value": "",
       "type": "string"
     }
   ],
@@ -1108,7 +1128,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["api", "v1", "notifications", "stream"]
             },
-            "description": "⚠️ Long-lived SSE connection. Opens a persistent stream that pushes notifications as they happen. Keepalive every 30s."
+            "description": "⚠️ Long-lived SSE connection. Pushes in-app notifications (`sse:user:{id}`) and **DM events** (`dm:{id}`): `dm_new_message`, `dm_read_receipt`. Sets `sse:online:{id}` while connected. Keepalive every 30s. See docs/api/dm.md."
           }
         },
         {
@@ -1173,6 +1193,236 @@
         }
       ],
       "description": "In-app notification management including SSE real-time streaming."
+    },
+    {
+      "name": "💬 Direct Messages (E2EE) (Protected)",
+      "item": [
+        {
+          "name": "Upload Public Key",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"cHVibGljLWtleS1kYXRh\",\n  \"key_version\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "keys"]
+            },
+            "description": "Register or rotate your X25519 public key (base64). Re-uploading the same version+key is a no-op. Rate limit: 60/min."
+          }
+        },
+        {
+          "name": "Get Peer Public Key",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/{{peerUserId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "keys", "{{peerUserId}}"]
+            },
+            "description": "Fetch the peer's current public key for ECDH before encrypting. Set `peerUserId` to another user's UUID."
+          }
+        },
+        {
+          "name": "Start Conversation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.conversation && json.conversation.conversation_id) {",
+                  "    pm.collectionVariables.set('conversationId', json.conversation.conversation_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{peerUserId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "conversations"]
+            },
+            "description": "Create or return the canonical 1:1 conversation. Requires `peerUserId`. Returns 403 if blocked."
+          }
+        },
+        {
+          "name": "List Conversations (Inbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.next_cursor) {",
+                  "    pm.collectionVariables.set('dmCursor', json.next_cursor);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations?limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "conversations"],
+              "query": [
+                { "key": "limit", "value": "20" },
+                { "key": "cursor", "value": "{{dmCursor}}", "disabled": true }
+              ]
+            },
+            "description": "Paginated inbox. Enable `cursor` query param and set `dmCursor` from a previous `next_cursor`."
+          }
+        },
+        {
+          "name": "List Messages",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.next_cursor) {",
+                  "    pm.collectionVariables.set('dmCursor', json.next_cursor);",
+                  "  }",
+                  "  if (json.messages && json.messages.length > 0) {",
+                  "    pm.collectionVariables.set('messageId', json.messages[0].message_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "conversations", "{{conversationId}}", "messages"],
+              "query": [
+                { "key": "limit", "value": "50" },
+                { "key": "cursor", "value": "{{dmCursor}}", "disabled": true }
+              ]
+            },
+            "description": "Message history (newest first). Requires `conversationId`. Ciphertext is opaque to the server."
+          }
+        },
+        {
+          "name": "Send Message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 or 409', () => {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.message_id) {",
+                  "    pm.collectionVariables.set('messageId', json.message_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ciphertext\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\n  \"nonce\": \"AAAAAAAAAAAAAAAA\",\n  \"key_version\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "conversations", "{{conversationId}}", "messages"]
+            },
+            "description": "Send AES-256-GCM ciphertext (base64). `key_version` must match the **recipient's** current key. Placeholder body uses 17-byte ciphertext + 12-byte nonce. Real clients encrypt locally. Pushes to peer via Redis `dm:{id}` and optional Kafka `dm_messages`."
+          }
+        },
+        {
+          "name": "Mark Conversation Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"last_read_id\": \"{{messageId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "conversations", "{{conversationId}}", "read"]
+            },
+            "description": "Update read receipt. Peer receives `dm_read_receipt` on SSE."
+          }
+        },
+        {
+          "name": "Delete Message (Soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/messages/{{messageId}}?conversation_id={{conversationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "dm", "messages", "{{messageId}}"],
+              "query": [
+                { "key": "conversation_id", "value": "{{conversationId}}" }
+              ]
+            },
+            "description": "Soft-delete your own message. Requires `conversation_id` query param."
+          }
+        }
+      ],
+      "description": "End-to-end encrypted direct messages. Server stores ciphertext only. Apply migrations/007_dm.cql. Docs: docs/api/dm.md. Typical order: Upload Public Key → set peerUserId → Start Conversation → Get Peer Public Key → Send Message → Mark Conversation Read."
     },
     {
       "name": "🔍 Search — Legacy Cassandra (Protected)",

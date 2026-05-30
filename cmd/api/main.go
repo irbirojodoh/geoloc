@@ -182,8 +182,18 @@ func main() {
 	// Setup Gin router
 	router := gin.Default()
 
-	// Global rate limiter (100 requests per minute per IP) backed by Redis
-	router.Use(middleware.RateLimitByIP(redisClient, 100, time.Minute))
+	// Global rate limiter per IP (Redis). Higher default in development for Postman/local testing.
+	ipRateLimit := 100
+	if appEnv == "development" {
+		ipRateLimit = 1000
+	}
+	if v := os.Getenv("RATE_LIMIT_IP_PER_MIN"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			ipRateLimit = n
+		}
+	}
+	router.Use(middleware.RateLimitByIP(redisClient, ipRateLimit, time.Minute))
+	slog.Info("IP rate limit configured", "limit_per_minute", ipRateLimit)
 
 	// Global request timeout (10 seconds) to prevent frozen external calls
 	router.Use(middleware.TimeoutMiddleware(10 * time.Second))

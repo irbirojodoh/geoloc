@@ -33,14 +33,25 @@ type DMConversationSummary struct {
 
 // DMMessage is a single encrypted message (opaque ciphertext to the server).
 type DMMessage struct {
-	ConversationID gocql.UUID
-	MessageID      gocql.UUID
-	SenderID       gocql.UUID
-	Ciphertext     string
-	Nonce          string
-	KeyVersion     int
-	SentAt         time.Time
-	DeletedAt      *time.Time
+	ConversationID   gocql.UUID
+	MessageID        gocql.UUID
+	SenderID         gocql.UUID
+	Ciphertext       string
+	Nonce            string
+	KeyVersion       int // recipient public key version used for ECDH
+	SenderKeyVersion int // sender public key version at encrypt time
+	SentAt           time.Time
+	DeletedAt        *time.Time
+}
+
+// DMIdentityBackup is a passphrase-encrypted identity key bundle (opaque to server).
+type DMIdentityBackup struct {
+	UserID         gocql.UUID
+	BackupVersion  int       `json:"backup_version"`
+	Ciphertext     string    `json:"ciphertext"`
+	Nonce          string    `json:"nonce"`
+	KdfSalt        string    `json:"kdf_salt"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 // ReadReceipt is the last read pointer for a user in a conversation.

@@ -1,0 +1,3101 @@
+{
+  "info": {
+    "_postman_id": "5eaea27e-b2a0-4d30-9ce4-5adc64293532",
+    "name": "Geoloc API — Complete Collection v2",
+    "description": "# Geoloc API — Complete Postman Collection\n\nA full test collection for the Geoloc hyper-local social media API.\n\n## 🚀 Getting Started\n\n1. **Start the infrastructure** — `docker compose up -d`\n2. **Set variables** — Click the eye icon 👁️ and set:\n   - `baseUrl`: `http://localhost:8080`\n   - `accessToken`: _(leave empty — will be filled after login)_\n3. **Authenticate** — Run `Auth > Register` or `Auth > Login`, then copy the `access_token` into the `accessToken` variable\n4. **Explore!** — All requests are pre-configured with auth headers\n\n## 📋 Collection Variables\n\n| Variable | Description |\n|----------|-------------|\n| `baseUrl` | API base URL (default: `http://localhost:8080`) |\n| `accessToken` | JWT access token (auto-filled after login) |\n| `postId` | UUID of a created post (for child requests) |\n| `userId` | UUID of a user (for follow/block etc.) |\n| `commentId` | UUID of a comment (for replies/likes) |\n| `geohash` | Geohash prefix for location operations |\n| `notificationId` | UUID of a notification |\n| `deviceToken` | FCM push notification token |",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "50475993",
+    "_collection_link": "https://go.postman.co/collection/50475993-5eaea27e-b2a0-4d30-9ce4-5adc64293532?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "🚦 Health & Readiness",
+      "item": [
+        {
+          "name": "Health Check",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Response has status field', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('status');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Returns overall system health including Cassandra and Redis status."
+          },
+          "response": []
+        },
+        {
+          "name": "Readiness Probe",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ready"
+              ]
+            },
+            "description": "Simple readiness probe — returns 200 when the server is accepting traffic."
+          },
+          "response": []
+        }
+      ],
+      "description": "Public endpoints for health checking and readiness probing."
+    },
+    {
+      "name": "🔐 Auth (Public)",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Response has access_token', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('access_token');",
+                  "  if (json.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', json.access_token);",
+                  "    pm.collectionVariables.set('userId', json.user.id);",
+                  "  }",
+                  "});",
+                  "try {",
+                  "  const body = JSON.parse(pm.request.body.raw);",
+                  "  if (body.email) pm.collectionVariables.set('loginEmail', body.email);",
+                  "  if (body.username) pm.collectionVariables.set('loginUsername', body.username);",
+                  "  if (body.password) pm.collectionVariables.set('loginPassword', body.password);",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"johndoe_{{$randomInt}}\",\n  \"email\": \"john_{{$randomInt}}@example.com\",\n  \"password\": \"securePassword123\",\n  \"full_name\": \"John Doe\",\n  \"phone_number\": \"+6281234567890\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Register a new user account. Returns JWT tokens and sets the `accessToken` variable automatically."
+          },
+          "response": []
+        },
+        {
+          "name": "Login (Email)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Sets accessToken from response', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('access_token');",
+                  "  if (json.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', json.access_token);",
+                  "    pm.collectionVariables.set('userId', json.user.id);",
+                  "  }",
+                  "});",
+                  "",
+                  "",
+                  "// Parse the JSON response",
+                  "const response = pm.response.json();",
+                  "",
+                  "// Check if tokens exist before saving to avoid errors",
+                  "if (response.access_token && response.refresh_token) {",
+                  "    pm.environment.set(\"accessToken\", response.access_token);",
+                  "    pm.environment.set(\"refresh_token\", response.refresh_token);",
+                  "    ",
+                  "    console.log(\"Tokens have been updated in the environment!\");",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{loginEmail}}\",\n  \"password\": \"{{loginPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login with email. Run **Register** first (saves loginEmail/loginPassword), or set those collection variables manually."
+          },
+          "response": []
+        },
+        {
+          "name": "Login (Username)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"{{loginUsername}}\",\n  \"password\": \"{{loginPassword}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login with username instead of email."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Sets new accessToken', () => {",
+                  "  const json = pm.response.json();",
+                  "  if (json.access_token) {",
+                  "    pm.collectionVariables.set('accessToken', json.access_token);",
+                  "  }",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Exchange a refresh token for a new access token. Replace the placeholder with an actual refresh token from a previous login."
+          },
+          "response": []
+        },
+        {
+          "name": "Google Login (Mobile Native)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIs...\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/google/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google",
+                "token"
+              ]
+            },
+            "description": "Mobile-native Google sign-in. Send the ID token obtained from the Google Sign-In SDK on the client."
+          },
+          "response": []
+        },
+        {
+          "name": "Apple Login (Mobile Native)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIs...\",\n  \"full_name\": \"Jane Doe\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/apple/token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "apple",
+                "token"
+              ]
+            },
+            "description": "Mobile-native Apple Sign-in. Send the ID token from Apple's SDK. `full_name` is only provided on the very first sign-in."
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"john@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Request a password reset. Always returns 200 (prevents email enumeration). The reset token is logged to server stdout in dev mode."
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"a1b2c3d4e5f6...64-char-hex...\",\n  \"new_password\": \"myNewSecurePass123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Reset password using a token received via email (or logged to stdout in dev mode). Token is a 64-character hex string."
+          },
+          "response": []
+        }
+      ],
+      "description": "Public authentication endpoints. No Bearer token required."
+    },
+    {
+      "name": "📡 Feed & Geocode (Protected)",
+      "item": [
+        {
+          "name": "Get Nearby Feed",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feed?latitude=-6.3694&longitude=106.8246&radius_km=10&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "-6.3694"
+                },
+                {
+                  "key": "longitude",
+                  "value": "106.8246"
+                },
+                {
+                  "key": "radius_km",
+                  "value": "10"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get nearby posts using cursor-based pagination. The first request omits `cursor`. Use `next_cursor` from the response for subsequent pages."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Feed (Next Page)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/feed?latitude=-6.3694&longitude=106.8246&limit=20&cursor={{next_cursor}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "latitude",
+                  "value": "-6.3694"
+                },
+                {
+                  "key": "longitude",
+                  "value": "106.8246"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{next_cursor}}"
+                }
+              ]
+            },
+            "description": "Fetch the next page of the feed by passing the `next_cursor` value from the previous response."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Address from Coordinates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/geocode/address?lat=-6.3694&lng=106.8246",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "geocode",
+                "address"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "-6.3694"
+                },
+                {
+                  "key": "lng",
+                  "value": "106.8246"
+                }
+              ]
+            },
+            "description": "Reverse geocode coordinates to a human-readable address using Nominatim."
+          },
+          "response": []
+        }
+      ],
+      "description": "Feed and geocoding endpoints. Requires JWT authentication."
+    },
+    {
+      "name": "👤 Profile & Account (Protected)",
+      "item": [
+        {
+          "name": "Get Current User (Me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Sets userId from response', () => {",
+                  "  const json = pm.response.json();",
+                  "  if (json.user && json.user.id) {",
+                  "    pm.collectionVariables.set('userId', json.user.id);",
+                  "  }",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Get the authenticated user's full profile."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"John Smith\",\n  \"bio\": \"Software engineer & coffee enthusiast\",\n  \"phone_number\": \"+6289876543210\",\n  \"profile_picture_url\": \"https://example.com/avatar.jpg\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Update the authenticated user's profile. All fields are optional — only send what you want to change."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"securePassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me"
+              ]
+            },
+            "description": "⚠️ Irreversible. Requires password confirmation. All PII is anonymized (GDPR-compliant soft-delete)."
+          },
+          "response": []
+        }
+      ],
+      "description": "Profile and account management endpoints."
+    },
+    {
+      "name": "👥 Users (Protected)",
+      "item": [
+        {
+          "name": "Get User by ID",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{target_userid}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{target_userid}}"
+              ]
+            },
+            "description": "Get a user's public profile by their UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User by Username",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/username/lisa_anderson",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "username",
+                "lisa_anderson"
+              ]
+            },
+            "description": "Get a user's public profile by their username."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User's Posts",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{target_userid}}/posts?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{target_userid}}",
+                "posts"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get posts by a specific user with cursor-based pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "Get User's Liked Posts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/liked-posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "liked-posts"
+              ]
+            },
+            "description": "Get posts that a user has liked."
+          },
+          "response": []
+        }
+      ],
+      "description": "User profile lookup endpoints."
+    },
+    {
+      "name": "🔄 Follows (Protected)",
+      "item": [
+        {
+          "name": "Follow User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{target_userid}}/follow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{target_userid}}",
+                "follow"
+              ]
+            },
+            "description": "Follow a user by their UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Unfollow User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{target_userid}}/follow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{target_userid}}",
+                "follow"
+              ]
+            },
+            "description": "Unfollow a user by their UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Followers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/1d6bf302-4305-11f1-b6cb-7a2e88169b55/followers?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "1d6bf302-4305-11f1-b6cb-7a2e88169b55",
+                "followers"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Get a list of users who follow the specified user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Following",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/following?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "following"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Get a list of users that the specified user follows."
+          },
+          "response": []
+        }
+      ],
+      "description": "Social graph — follow/unfollow users and list followers/following."
+    },
+    {
+      "name": "🚫 Block / Mute (Protected)",
+      "item": [
+        {
+          "name": "Block User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/block",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "block"
+              ]
+            },
+            "description": "Block a user. Blocked users are hidden from each other's feeds and cannot interact."
+          },
+          "response": []
+        },
+        {
+          "name": "Unblock User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/block",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "block"
+              ]
+            },
+            "description": "Unblock a previously blocked user."
+          },
+          "response": []
+        },
+        {
+          "name": "Mute User",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/mute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "mute"
+              ]
+            },
+            "description": "Mute a user. Their content is hidden from your feed, but they can still interact with you."
+          },
+          "response": []
+        },
+        {
+          "name": "Unmute User",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/{{userId}}/mute",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "{{userId}}",
+                "mute"
+              ]
+            },
+            "description": "Unmute a previously muted user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Blocked Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/blocked",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "blocked"
+              ]
+            },
+            "description": "List all users you have blocked."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Muted Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/users/me/muted",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "me",
+                "muted"
+              ]
+            },
+            "description": "List all users you have muted."
+          },
+          "response": []
+        }
+      ],
+      "description": "Content moderation — block/mute users and list blocked/muted accounts."
+    },
+    {
+      "name": "📝 Posts (Protected)",
+      "item": [
+        {
+          "name": "Create Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Sets postId from response', () => {",
+                  "  const json = pm.response.json();",
+                  "  if (json.post && json.post.id) {",
+                  "    pm.collectionVariables.set('postId', json.post.id);",
+                  "  }",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"This is a test for cassandra posts\",\n  \"media_urls\": [],\n  \"latitude\": -6.3694,\n  \"longitude\": 106.8246\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts"
+              ]
+            },
+            "description": "Create a new post with location. The `user_id` is inferred from the JWT token — do not send it in the body. Automatically saves the post ID into the `postId` variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Post by ID",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{target_postid}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{target_postid}}"
+              ],
+              "query": [
+                {
+                  "key": "",
+                  "value": null,
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get a single post by its UUID. Includes author info and like state."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Post",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{postId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{postId}}"
+              ]
+            },
+            "description": "Delete your own post. Cascades to likes and comments."
+          },
+          "response": []
+        }
+      ],
+      "description": "Post CRUD operations."
+    },
+    {
+      "name": "❤️ Likes (Protected)",
+      "item": [
+        {
+          "name": "Like Post",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{target_postid}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{target_postid}}",
+                "like"
+              ]
+            },
+            "description": "Like a post."
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Post",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{postId}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{postId}}",
+                "like"
+              ]
+            },
+            "description": "Remove your like from a post."
+          },
+          "response": []
+        },
+        {
+          "name": "Toggle Post Like (Idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{target_postid}}/toggle-like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{target_postid}}",
+                "toggle-like"
+              ]
+            },
+            "description": "Idempotent toggle: likes if not liked, unlikes if liked. Safe for unreliable networks."
+          },
+          "response": []
+        }
+      ],
+      "description": "Post like/unlike operations."
+    },
+    {
+      "name": "💬 Comments (Protected)",
+      "item": [
+        {
+          "name": "Create Comment on Post",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test('Sets commentId from response', () => {",
+                  "  const json = pm.response.json();",
+                  "  if (json.comment && json.comment.id) {",
+                  "    pm.collectionVariables.set('commentId', json.comment.id);",
+                  "  }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"This is a great post! 🙌\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{postId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{postId}}",
+                "comments"
+              ]
+            },
+            "description": "Add a comment to a post. Automatically saves the comment ID into the `commentId` variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Comments for Post",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/posts/{{postId}}/comments?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "posts",
+                "{{postId}}",
+                "comments"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Get all comments for a post."
+          },
+          "response": []
+        },
+        {
+          "name": "Reply to Comment",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Thanks for your kind words! 😊\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}/reply",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}",
+                "reply"
+              ]
+            },
+            "description": "Reply to a comment. Maximum nesting depth is 3 levels."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Replies to Comment",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}/replies",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}",
+                "replies"
+              ]
+            },
+            "description": "Get all replies to a specific comment."
+          },
+          "response": []
+        },
+        {
+          "name": "Edit Comment",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Updated comment content! ✏️\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}"
+              ]
+            },
+            "description": "Edit your own comment."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Comment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}"
+              ]
+            },
+            "description": "Delete your own comment."
+          },
+          "response": []
+        },
+        {
+          "name": "Like Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}",
+                "like"
+              ]
+            },
+            "description": "Like a comment."
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Comment",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}/like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}",
+                "like"
+              ]
+            },
+            "description": "Remove your like from a comment."
+          },
+          "response": []
+        },
+        {
+          "name": "Toggle Comment Like (Idempotent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/comments/{{commentId}}/toggle-like",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "comments",
+                "{{commentId}}",
+                "toggle-like"
+              ]
+            },
+            "description": "Idempotent toggle for comment likes. Safe for unreliable networks."
+          },
+          "response": []
+        }
+      ],
+      "description": "Comment CRUD and like operations. Nested replies supported up to 3 levels."
+    },
+    {
+      "name": "📍 Location Follows (Protected)",
+      "item": [
+        {
+          "name": "Follow Location",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": -6.3694,\n  \"longitude\": 106.8246,\n  \"name\": \"Depok, Indonesia\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/locations/follow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "follow"
+              ]
+            },
+            "description": "Follow a geographic area. You'll receive notifications when new posts are created nearby."
+          },
+          "response": []
+        },
+        {
+          "name": "Unfollow Location",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/locations/{{geohash}}/follow",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "{{geohash}}",
+                "follow"
+              ]
+            },
+            "description": "Unfollow a geographic area by its geohash prefix."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Followed Locations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/locations/following",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "locations",
+                "following"
+              ]
+            },
+            "description": "List all geographic areas you are following."
+          },
+          "response": []
+        }
+      ],
+      "description": "Follow/unfollow geographic areas to get notified about nearby posts."
+    },
+    {
+      "name": "🔔 Notifications (Protected)",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "unread",
+                  "value": "false",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all notifications for the authenticated user. Use `?unread=true` to filter unread only."
+          },
+          "response": []
+        },
+        {
+          "name": "SSE Notification Stream",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "stream"
+              ]
+            },
+            "description": "⚠️ Long-lived SSE connection. Opens a persistent stream that pushes notifications as they happen. Keepalive every 30s."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/unread-count",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "unread-count"
+              ]
+            },
+            "description": "Get the count of unread notifications."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notificationId}}",
+                "read"
+              ]
+            },
+            "description": "Mark a specific notification as read."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark All Notifications as Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/read-all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "read-all"
+              ]
+            },
+            "description": "Mark all notifications as read."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Notification",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/notifications/{{notificationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "{{notificationId}}"
+              ]
+            },
+            "description": "Delete a specific notification."
+          },
+          "response": []
+        }
+      ],
+      "description": "In-app notification management including SSE real-time streaming."
+    },
+    {
+      "name": "🔍 Search — Legacy Cassandra (Protected)",
+      "item": [
+        {
+          "name": "Search Users (Cassandra)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search/users?q=john&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "john"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Legacy Cassandra-backed user search using SAI indexes. Min 2 characters."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Posts (Cassandra)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search/posts?q=hello&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search",
+                "posts"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "hello"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Legacy Cassandra-backed post search using SAI indexes. Min 2 characters."
+          },
+          "response": []
+        }
+      ],
+      "description": "Legacy search endpoints backed by Cassandra SAI indexes. Still available as a fallback."
+    },
+    {
+      "name": "🔍 Search — Elasticsearch (Protected, New)",
+      "item": [
+        {
+          "name": "Global Search (ES)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search?q=coffee&type=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "coffee"
+                },
+                {
+                  "key": "type",
+                  "value": "all"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "🔬 Elasticsearch full-text search across posts and users. Supports fuzzy matching and typo tolerance.\n\n- `type`: `all`, `posts`, or `users` (default: `all`)\n- Fans out to ES in parallel for both post and user queries\n- Hydrates full objects from Cassandra using returned IDs"
+          },
+          "response": []
+        },
+        {
+          "name": "Search Posts Only (ES)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search?q=cassandra&type=posts",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "cassandra"
+                },
+                {
+                  "key": "type",
+                  "value": "posts"
+                }
+              ]
+            },
+            "description": "Search only posts using Elasticsearch with multi-match across content and hashtags."
+          },
+          "response": []
+        },
+        {
+          "name": "Search Users Only (ES)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search?q=nina&type=users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "nina"
+                },
+                {
+                  "key": "type",
+                  "value": "users"
+                }
+              ]
+            },
+            "description": "Search only users using Elasticsearch with function_score (verified users boosted 1.5x), sorted by follower_count."
+          },
+          "response": []
+        },
+        {
+          "name": "Nearby Search (ES)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/search/nearby?q=coffee&lat=-6.3694&lon=106.8246&radius_km=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "search",
+                "nearby"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "coffee"
+                },
+                {
+                  "key": "lat",
+                  "value": "-6.3694"
+                },
+                {
+                  "key": "lon",
+                  "value": "106.8246"
+                },
+                {
+                  "key": "radius_km",
+                  "value": "5"
+                },
+                {
+                  "key": "type",
+                  "value": "all",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "🔬 Geo-filtered full-text search. Results are re-ranked using:\n- 50% ES relevance score\n- 30% Recency (1 / (1 + hours_since_posted))\n- 20% Proximity (1 / (1 + distance_km))"
+          },
+          "response": []
+        },
+        {
+          "name": "Autocomplete",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/autocomplete?q=john&type=all",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "autocomplete"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "john"
+                },
+                {
+                  "key": "type",
+                  "value": "all"
+                }
+              ]
+            },
+            "description": "⚡ Real-time autocomplete for usernames (Redis ZRANGEBYLEX) and hashtags (ES aggregations).\n\n- `type`: `all`, `users`, or `hashtags`\n- Usernames: Redis sorted set prefix scan\n- Hashtags: ES edge n-gram prefix + terms aggregation (sorted by doc count)"
+          },
+          "response": []
+        },
+        {
+          "name": "Autocomplete — Usernames Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/autocomplete?q=joh&type=users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "autocomplete"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "joh"
+                },
+                {
+                  "key": "type",
+                  "value": "users"
+                }
+              ]
+            },
+            "description": "Username-only autocomplete. Hits Redis sorted set `users:autocomplete` using ZRANGEBYLEX."
+          },
+          "response": []
+        },
+        {
+          "name": "Autocomplete — Hashtags Only",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/autocomplete?q=sun&type=hashtags",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "autocomplete"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "sun"
+                },
+                {
+                  "key": "type",
+                  "value": "hashtags"
+                }
+              ]
+            },
+            "description": "Hashtag-only autocomplete. Queries ES posts index using prefix + terms aggregation, returning top 10 by doc count."
+          },
+          "response": []
+        }
+      ],
+      "description": "🔬 New Elasticsearch-backed search endpoints. Requires Elasticsearch to be running together with the search-indexer worker."
+    },
+    {
+      "name": "📤 Uploads (Protected)",
+      "item": [
+        {
+          "name": "Upload Avatar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Max 5MB. JPEG/PNG/GIF/WebP",
+                  "value": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/upload/avatar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "upload",
+                "avatar"
+              ]
+            },
+            "description": "Upload a profile avatar. Max 5MB. Supported formats: JPEG, PNG, GIF, WebP."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Post Media",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Max 50MB. JPEG/PNG/GIF/WebP/MP4/MOV",
+                  "value": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/upload/post",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "upload",
+                "post"
+              ]
+            },
+            "description": "Upload media for a post. Max 50MB. Supported formats: JPEG, PNG, GIF, WebP, MP4, MOV."
+          },
+          "response": []
+        }
+      ],
+      "description": "File upload endpoints. Use multipart/form-data."
+    },
+    {
+      "name": "📱 Devices & Push (Protected)",
+      "item": [
+        {
+          "name": "Register Device (FCM)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"token\": \"cRd8zEiwsGbzvq6nxqt7Iy:APA91bEEjhFkvke91dp0MS1GvsyvhphexfolfzpEO_tqEFpI7fzQw_P2_GqsSIprN8o5ZvvYVaXdts20EI9HaOORKqmhVk_iNHOCIOrNoD-nVRh0ZHin0WY\",\n    \"platform\": \"web\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices"
+              ]
+            },
+            "description": "Register a device for push notifications. `platform` can be `ios` or `android`."
+          },
+          "response": []
+        },
+        {
+          "name": "Unregister Device",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"cRd8zEiwsGbzvq6nxqt7Iy:APA91bEEjhFkvke91dp0MS1GvsyvhphexfolfzpEO_tqEFpI7fzQw_P2_GqsSIprN8o5ZvvYVaXdts20EI9HaOORKqmhVk_iNHOCIOrNoD-nVRh0ZHin0WY\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices"
+              ]
+            },
+            "description": "Unregister a device from push notifications."
+          },
+          "response": []
+        }
+      ],
+      "description": "Push notification device registration via Firebase Cloud Messaging (FCM)."
+    },
+    {
+      "name": "🚨 Content Moderation (Protected)",
+      "item": [
+        {
+          "name": "Report Content",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"target_type\": \"post\",\n  \"target_id\": \"{{postId}}\",\n  \"reason\": \"spam\",\n  \"description\": \"This post contains promotional spam content\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports"
+              ]
+            },
+            "description": "Report a post, comment, or user for moderation review.\n\n- `target_type`: `post`, `comment`, or `user`\n- `reason`: `spam`, `harassment`, `inappropriate`, or `other`"
+          },
+          "response": []
+        }
+      ],
+      "description": "Content reporting for moderation. Reports are reviewed by the team."
+    },
+    {
+      "name": "Direct Message (Protected)",
+      "item": [
+        {
+          "name": "Upload Public Key",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"public_key\": \"cHVibGljLWtleS1kYXRh\",\n  \"key_version\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys"
+              ]
+            },
+            "description": "Register or rotate your X25519 public key (base64). Re-uploading the same version+key is a no-op. Rate limit: 60/min."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Peer Public Key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/{{peerUserId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys",
+                "{{peerUserId}}"
+              ]
+            },
+            "description": "Fetch the peer's current public key for ECDH before encrypting. Set `peerUserId` to another user's UUID."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload Identity Backup",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"backup_version\": 1,\n  \"ciphertext\": \"AAAAAAAAAAAAAAAAAAAAAAA=\",\n  \"nonce\": \"AAAAAAAAAAAAAAAA\",\n  \"kdf_salt\": \"AAAAAAAAAAAAAAAAAAAAAA==\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/backup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys",
+                "backup"
+              ]
+            },
+            "description": "Upload passphrase-encrypted identity backup for multi-device restore. Opaque to server. Rate limit: 60/min."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Identity Backup",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/backup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys",
+                "backup"
+              ],
+              "query": [
+                {
+                  "key": "backup_version",
+                  "value": "1",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Download your identity backup (latest by default). Enable backup_version to fetch a specific version."
+          },
+          "response": []
+        },
+        {
+          "name": "List Peer Public Key Versions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/{{peerUserId}}/versions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys",
+                "{{peerUserId}}",
+                "versions"
+              ]
+            },
+            "description": "List all public key versions for a user (for decrypting message history after key rotation)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Peer Public Key (by version)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/keys/{{peerUserId}}?key_version=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "keys",
+                "{{peerUserId}}"
+              ],
+              "query": [
+                {
+                  "key": "key_version",
+                  "value": "1"
+                }
+              ]
+            },
+            "description": "Fetch a specific public key version. Omit key_version on Get Peer Public Key for the current (latest) key."
+          },
+          "response": []
+        },
+        {
+          "name": "Start Conversation",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.conversation && json.conversation.conversation_id) {",
+                  "    pm.collectionVariables.set('conversationId', json.conversation.conversation_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{peerUserId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations"
+              ]
+            },
+            "description": "Create or return the canonical 1:1 conversation. Requires `peerUserId`. Returns 403 if blocked."
+          },
+          "response": []
+        },
+        {
+          "name": "List Conversations (Inbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.next_cursor) {",
+                  "    pm.collectionVariables.set('dmCursor', json.next_cursor);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{dmCursor}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Paginated inbox. Enable `cursor` query param and set `dmCursor` from a previous `next_cursor`."
+          },
+          "response": []
+        },
+        {
+          "name": "List Messages",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.next_cursor) {",
+                  "    pm.collectionVariables.set('dmCursor', json.next_cursor);",
+                  "  }",
+                  "  if (json.messages && json.messages.length > 0) {",
+                  "    pm.collectionVariables.set('messageId', json.messages[0].message_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "cursor",
+                  "value": "{{dmCursor}}",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Message history (newest first). Requires `conversationId`. Ciphertext is opaque to the server."
+          },
+          "response": []
+        },
+        {
+          "name": "Send Message",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 or 409', () => {",
+                  "  pm.expect([201, 409]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 201) {",
+                  "  const json = pm.response.json();",
+                  "  if (json.message_id) {",
+                  "    pm.collectionVariables.set('messageId', json.message_id);",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ciphertext\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\",\n  \"nonce\": \"AAAAAAAAAAAAAAAA\",\n  \"key_version\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/messages",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations",
+                "{{conversationId}}",
+                "messages"
+              ]
+            },
+            "description": "Send AES-256-GCM ciphertext (base64). `key_version` must match the recipient's current key. Placeholder body uses 17-byte ciphertext + 12-byte nonce."
+          },
+          "response": []
+        },
+        {
+          "name": "Mark Conversation Read",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"last_read_id\": \"{{messageId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}/read",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations",
+                "{{conversationId}}",
+                "read"
+              ]
+            },
+            "description": "Update read receipt. Peer receives `dm_read_receipt` on SSE."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Conversation (Inbox)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 204', () => {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/conversations/{{conversationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "conversations",
+                "{{conversationId}}"
+              ]
+            },
+            "description": "DELETE /api/v1/dm/conversations/:id — Remove conversation from **your inbox only** (per-user delete). Messages and the peer's inbox are unchanged. Restore by POST Start Conversation with the same peer or when a new message is sent. Requires `conversationId`."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Message (Soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{accessToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/dm/messages/{{messageId}}?conversation_id={{conversationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dm",
+                "messages",
+                "{{messageId}}"
+              ],
+              "query": [
+                {
+                  "key": "conversation_id",
+                  "value": "{{conversationId}}"
+                }
+              ]
+            },
+            "description": "Soft-delete your own message. Requires `conversation_id` query param."
+          },
+          "response": []
+        }
+      ],
+      "description": "End-to-end encrypted direct messages. Server stores ciphertext only. Typical order: Upload Public Key → (optional) Upload Identity Backup → set peerUserId → Start Conversation → Get Peer Public Key → Send Message → Mark Conversation Read → Delete Conversation (inbox) / Delete Message. For history after key rotation use List Peer Public Key Versions / Get Peer Public Key (by version). Apply migrations/007_dm.cql and 008_dm_multidevice.cql."
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "accessToken_legacy",
+      "value": ""
+    },
+    {
+      "key": "postId",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "commentId",
+      "value": ""
+    },
+    {
+      "key": "geohash",
+      "value": "qqggy"
+    },
+    {
+      "key": "notificationId",
+      "value": ""
+    },
+    {
+      "key": "deviceToken",
+      "value": "fcm-device-token-here"
+    },
+    {
+      "key": "next_cursor",
+      "value": ""
+    },
+    {
+      "key": "accessToken",
+      "value": ""
+    },
+    {
+      "key": "loginEmail",
+      "value": ""
+    },
+    {
+      "key": "loginUsername",
+      "value": ""
+    },
+    {
+      "key": "loginPassword",
+      "value": ""
+    },
+    {
+      "key": "peerUserId",
+      "value": ""
+    },
+    {
+      "key": "conversationId",
+      "value": ""
+    },
+    {
+      "key": "messageId",
+      "value": ""
+    },
+    {
+      "key": "dmCursor",
+      "value": ""
+    }
+  ]
+}

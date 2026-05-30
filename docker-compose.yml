@@ -92,6 +92,8 @@ services:
       - ./migrations/004_like_comment_v3.cql:/schema/004_like_comment_v3.cql:ro
       - ./migrations/005_search_indexes.cql:/schema/005_search_indexes.cql:ro
       - ./migrations/006_notifications_v2.cql:/schema/006_notifications_v2.cql:ro
+      - ./migrations/007_dm.cql:/schema/007_dm.cql:ro
+      - ./migrations/008_dm_multidevice.cql:/schema/008_dm_multidevice.cql:ro
       - ./migrations/mock_data.cql:/schema/mock_data.cql:ro
     entrypoint:
       - /bin/sh
@@ -109,6 +111,10 @@ services:
         cqlsh cassandra-1 -f /schema/005_search_indexes.cql || true
         echo "Applying migration: 006_notifications_v2..."
         cqlsh cassandra-1 -f /schema/006_notifications_v2.cql || true
+        echo "Applying migration: 007_dm..."
+        cqlsh cassandra-1 -f /schema/007_dm.cql || true
+        echo "Applying migration: 008_dm_multidevice..."
+        cqlsh cassandra-1 -f /schema/008_dm_multidevice.cql || true
         echo "Applying optional mock data (idempotent)..."
         cqlsh cassandra-1 -f /schema/mock_data.cql || true
         echo "Cassandra initialization complete."

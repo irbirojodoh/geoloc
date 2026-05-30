@@ -74,13 +74,24 @@ data: { ... AppNotification JSON ... }
 : heartbeat
 ```
 
-`data:` payloads are the same shape as the `Notification` object returned by `GET /api/v1/notifications` (including `id`, `is_read`, and `created_at`).
+`data:` payloads from **`sse:user:{userID}`** match the `Notification` object returned by `GET /api/v1/notifications` (including `id`, `is_read`, and `created_at`).
+
+The same connection also receives **direct message** events from Redis channel **`dm:{userID}`**. Those payloads are **not** notification rows — inspect `type`:
+
+| `type` | Description |
+|--------|-------------|
+| `dm_new_message` | New encrypted message (includes `ciphertext`, `nonce`, `key_version`, `sender_key_version`, `conversation_id`, `message_id`, `sender_id`, `sent_at`; may include `event`: `dm.message.created`) |
+| `dm_read_receipt` | Peer updated read pointer (`conversation_id`, `last_read_id`, `read_at`) |
+
+Full DM REST API and E2EE contract: [Direct messages](./dm.md).
+
+While connected, the server sets Redis **`sse:online:{userID}`** (refreshed on heartbeat) so offline users can receive DM events via Kafka → push pipeline.
 
 **Heartbeat:** A keepalive comment line is sent every 30 seconds.
 
 **Clients should:**
 - Auto-reconnect on connection drop (exponential backoff recommended)
-- Parse `event:` lines to differentiate notification types
+- Parse `data:` JSON and branch on `type` for notifications vs. DM events
 
 ## Get Unread Count
 

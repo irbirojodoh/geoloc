@@ -2,6 +2,27 @@
 
 End-to-end encrypted direct messaging: the API stores **only ciphertext** (base64) and a **GCM nonce** (base64). The server never receives private keys or plaintext message bodies.
 
+**Postman:** Import `tests/postman/Geoloc_API.postman_collection.json` and use the **💬 Direct Messages (E2EE)** folder (variables: `peerUserId`, `conversationId`, `messageId`, `dmCursor`).
+
+## Endpoint summary
+
+| Method | Path | Rate limited |
+|--------|------|----------------|
+| `PUT` | `/api/v1/dm/keys` | Yes (60/min) |
+| `PUT` | `/api/v1/dm/keys/backup` | Yes |
+| `GET` | `/api/v1/dm/keys/backup` | No |
+| `GET` | `/api/v1/dm/keys/:userID` | No |
+| `GET` | `/api/v1/dm/keys/:userID/versions` | No |
+| `POST` | `/api/v1/dm/conversations` | Yes |
+| `GET` | `/api/v1/dm/conversations` | No |
+| `GET` | `/api/v1/dm/conversations/:id/messages` | No |
+| `POST` | `/api/v1/dm/conversations/:id/messages` | Yes |
+| `DELETE` | `/api/v1/dm/messages/:messageID?conversation_id=` | Yes |
+| `PUT` | `/api/v1/dm/conversations/:id/read` | Yes |
+| `DELETE` | `/api/v1/dm/conversations/:id` | Yes |
+
+Real-time delivery shares **`GET /api/v1/notifications/stream`** (see [Notifications](./notifications.md#sse-real-time-stream)).
+
 ## Security model
 
 | Stored on server | Not stored / never sent |
@@ -37,9 +58,85 @@ When `KAFKA_BROKERS` is configured, the API opens a producer on topic **`dm_mess
 
 Payload fields align with SSE payloads; new-message events include `"type":"dm_new_message"` and `"event":"dm.message.created"`.
 
+### SSE event examples
+
+**New message** (`data:` line on the shared notification stream):
+
+```json
+{
+  "type": "dm_new_message",
+  "event": "dm.message.created",
+  "conversation_id": "...",
+  "message_id": "...",
+  "sender_id": "...",
+  "ciphertext": "<base64>",
+  "nonce": "<base64>",
+  "key_version": 1,
+  "sender_key_version": 2,
+  "sent_at": "2026-05-27T12:00:00.000000000Z"
+}
+```
+
+**Read receipt:**
+
+```json
+{
+  "type": "dm_read_receipt",
+  "conversation_id": "...",
+  "last_read_id": "...",
+  "read_at": "2026-05-27T12:00:00.000000000Z"
+}
+```
+
+Clients should branch on `type` (or `event` for Kafka consumers). Notification objects from `sse:user:{id}` do not include `type: dm_*`.
+
+## Typical client flow
+
+1. **Register key** — `PUT /api/v1/dm/keys` with your X25519 public key and `key_version`.
+2. **Open SSE** — `GET /api/v1/notifications/stream` (same connection as in-app notifications).
+3. **Start chat** — `POST /api/v1/dm/conversations` with `{ "user_id": "<peer>" }`; store `conversation_id`.
+4. **Before first send** — `GET /api/v1/dm/keys/:peerUserId`; ECDH + HKDF → AES-256-GCM key; encrypt locally.
+5. **Send** — `POST /api/v1/dm/conversations/:id/messages` with `ciphertext`, `nonce`, and the peer’s current `key_version`.
+6. **History / catch-up** — `GET .../messages?cursor=` when reconnecting.
+7. **Read state** — `PUT .../read` with `last_read_id` from the newest message you have decrypted.
+
+If send returns **409** `key_version_mismatch`, re-fetch the peer’s key and retry.
+
+## Multi-device and message history
+
+**New device:** After generating keys, upload `PUT /dm/keys` with a new `key_version`. Restore your identity from `GET /dm/keys/backup` (passphrase-decrypted on the client) if you uploaded a backup with `PUT /dm/keys/backup`.
+
+**Decrypting history:** Each message includes:
+
+- `key_version` — recipient’s public key version used when the sender encrypted (for inbound messages to you).
+- `sender_key_version` — sender’s public key version at send time (fetch via `GET /dm/keys/:senderID?key_version=N` or list versions with `GET /dm/keys/:userID/versions`).
+
+For messages you sent, use your local plaintext or the backup; ciphertext on the server is encrypted for the **recipient**.
+
+**Identity backup (opaque to server):** Client wraps the identity private key with a passphrase (e.g. PBKDF2 + AES-GCM). Upload `ciphertext`, `nonce`, and `kdf_salt` (base64, salt ≥ 16 decoded bytes). Only the authenticated user can read their backup.
+
+## Error reference
+
+| HTTP | `error` | Meaning |
+|------|---------|---------|
+| 400 | `invalid_body` | Missing or malformed JSON |
+| 400 | `invalid_uuid` | Bad path or query UUID |
+| 400 | `invalid_cursor` | Bad pagination cursor |
+| 400 | `invalid_ciphertext_base64` | Ciphertext not valid base64 |
+| 400 | `invalid_nonce_base64` | Nonce not valid base64 |
+| 400 | `invalid_nonce_length` | Decoded nonce ≠ 12 bytes |
+| 400 | `invalid_ciphertext_length` | Decoded ciphertext &lt; 17 bytes |
+| 403 | `forbidden` | Not a conversation participant |
+| 403 | `blocked` | Block relationship with peer |
+| 404 | `public_key_not_found` | Peer has not uploaded a key |
+| 404 | `backup_not_found` | No identity backup for caller |
+| 409 | `key_version_mismatch` | `current_version` in body — refresh peer key |
+| 409 | `recipient_has_no_public_key` | Recipient key missing at send time |
+| 409 | `sender_has_no_public_key` | Caller must upload a key before sending |
+
 ## Cassandra migration
 
-Apply `migrations/007_dm.cql` to the `geoloc` keyspace (see file for full DDL).
+Apply `migrations/007_dm.cql` and `migrations/008_dm_multidevice.cql` to the `geoloc` keyspace.
 
 ---
 
@@ -68,7 +165,7 @@ Upload or rotate the caller’s public key.
 
 ### `GET /api/v1/dm/keys/:userID`
 
-Fetch another user’s **current** public key (highest `key_version`).
+Fetch another user’s public key. Without `key_version`, returns the **current** key (highest `key_version`). With `?key_version=N`, returns that version or `404`.
 
 **Response `200`**
 
@@ -84,6 +181,71 @@ Fetch another user’s **current** public key (highest `key_version`).
 **Errors**
 
 - `404` — `{"error":"public_key_not_found"}`
+
+---
+
+### `GET /api/v1/dm/keys/:userID/versions`
+
+List all public key versions for a user (newest clustering order).
+
+**Response `200`**
+
+```json
+{
+  "versions": [
+    {
+      "user_id": "...",
+      "public_key": "<base64>",
+      "key_version": 2,
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+---
+
+### `PUT /api/v1/dm/keys/backup`
+
+Upload a passphrase-encrypted identity backup (caller only).
+
+**Request**
+
+```json
+{
+  "backup_version": 1,
+  "ciphertext": "<base64>",
+  "nonce": "<base64>",
+  "kdf_salt": "<base64>"
+}
+```
+
+**Responses**
+
+- `204 No Content`
+- `400` — invalid body / backup version / ciphertext / nonce / kdf_salt
+
+---
+
+### `GET /api/v1/dm/keys/backup`
+
+Download your identity backup. Optional `?backup_version=N`; omit for latest.
+
+**Response `200`**
+
+```json
+{
+  "backup_version": 1,
+  "ciphertext": "...",
+  "nonce": "...",
+  "kdf_salt": "...",
+  "updated_at": "..."
+}
+```
+
+**Errors**
+
+- `404` — `{"error":"backup_not_found"}`
 
 ---
 
@@ -145,6 +307,23 @@ Paginated inbox (cursor = Cassandra page state).
 
 ---
 
+### `DELETE /api/v1/dm/conversations/:id`
+
+Remove the conversation from **your inbox only** (per-user delete). Does not delete messages or remove the chat for the other participant. Does not delete the canonical `dm_conversations` row.
+
+**Responses**
+
+- `204 No Content` — removed from inbox (idempotent if already hidden).
+- `403` — `{ "error": "forbidden" }` if not a participant.
+
+**Behavior**
+
+- `GET /api/v1/dm/conversations` no longer lists this chat for you.
+- `POST /api/v1/dm/conversations` with the same peer restores your inbox row so you can open the thread again.
+- A new message in either direction re-adds both users’ inbox rows (existing send flow).
+
+---
+
 ### `GET /api/v1/dm/conversations/:id/messages`
 
 Message history (newest first). Non-participants receive **`403`** with `{"error":"forbidden"}` (not `404`).
@@ -165,6 +344,7 @@ Message history (newest first). Non-participants receive **`403`** with `{"error
       "ciphertext": "...",
       "nonce": "...",
       "key_version": 1,
+      "sender_key_version": 2,
       "sent_at": "...",
       "deleted_at": null
     }
@@ -196,6 +376,7 @@ Send ciphertext. `key_version` must equal the **recipient’s** current server-s
 - `201 Created` — `{"message_id":"...","sent_at":"..."}`
 - `409 Conflict` — `{"error":"key_version_mismatch","current_version":N}` (client should re-fetch keys and retry).
 - `409 Conflict` — `{"error":"recipient_has_no_public_key"}` if the peer never uploaded a key.
+- `409 Conflict` — `{"error":"sender_has_no_public_key"}` if the caller has no uploaded key.
 - `403` — `{"error":"blocked"}` or `{"error":"forbidden"}` (not a participant).
 - `400` — invalid base64 / nonce length / ciphertext length.
 
