@@ -13,10 +13,11 @@ import (
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/notifications"
 	"social-geo-go/internal/notifications/kafka"
+	"social-geo-go/internal/storage"
 )
 
 // Helper to enrich comments with user info
-func enrichCommentsWithUserInfo(ctx context.Context, comments []data.Comment, userRepo *data.UserRepository) {
+func enrichCommentsWithUserInfo(ctx context.Context, comments []data.Comment, userRepo *data.UserRepository, store storage.MediaStore) {
 	if userRepo == nil || len(comments) == 0 {
 		return
 	}
@@ -44,7 +45,7 @@ func enrichCommentsWithUserInfo(ctx context.Context, comments []data.Comment, us
 		for i := range comments {
 			if info, ok := userInfoMap[comments[i].UserID]; ok {
 				comments[i].Username = info.Username
-				comments[i].ProfilePictureURL = info.ProfilePictureURL
+				comments[i].ProfilePictureURL = storage.ResolveMediaURL(store, info.ProfilePictureURL)
 			}
 			if len(comments[i].Replies) > 0 {
 				enrich(comments[i].Replies)
@@ -195,7 +196,7 @@ func EditComment(commentRepo *data.CommentRepository) gin.HandlerFunc {
 }
 
 // GetComments handles GET /api/v1/posts/:id/comments
-func GetComments(commentRepo *data.CommentRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func GetComments(commentRepo *data.CommentRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		postID := c.Param("id")
 
@@ -219,7 +220,7 @@ func GetComments(commentRepo *data.CommentRepository, userRepo *data.UserReposit
 		// Enrich
 		ctx := c.Request.Context()
 		currentUserID := auth.GetUserID(c)
-		enrichCommentsWithUserInfo(ctx, comments, userRepo)
+		enrichCommentsWithUserInfo(ctx, comments, userRepo, store)
 		enrichCommentsWithLikeInfo(ctx, comments, likeRepo, currentUserID)
 
 		count, _ := commentRepo.GetCommentCount(ctx, postID)
@@ -236,7 +237,7 @@ func GetComments(commentRepo *data.CommentRepository, userRepo *data.UserReposit
 }
 
 // GetReplies handles GET /api/v1/comments/:id/replies
-func GetReplies(commentRepo *data.CommentRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository) gin.HandlerFunc {
+func GetReplies(commentRepo *data.CommentRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		parentID := c.Param("id")
 
@@ -260,7 +261,7 @@ func GetReplies(commentRepo *data.CommentRepository, userRepo *data.UserReposito
 		// Enrich
 		ctx := c.Request.Context()
 		currentUserID := auth.GetUserID(c)
-		enrichCommentsWithUserInfo(ctx, replies, userRepo)
+		enrichCommentsWithUserInfo(ctx, replies, userRepo, store)
 		enrichCommentsWithLikeInfo(ctx, replies, likeRepo, currentUserID)
 
 		c.JSON(http.StatusOK, gin.H{

@@ -1,8 +1,9 @@
 package handlers
 
 import (
+	"io"
+	"mime/multipart"
 	"net/http"
-	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 
@@ -10,21 +11,22 @@ import (
 	"social-geo-go/internal/storage"
 )
 
-// Allowed content types for upload
-var allowedImageTypes = map[string]bool{
-	"image/jpeg": true,
-	"image/png":  true,
-	"image/gif":  true,
-	"image/webp": true,
+// UploadAvatar handles POST /api/v1/upload/avatar (Pattern A — server-side multipart upload).
+func UploadAvatar(store storage.MediaStore) gin.HandlerFunc {
+	return uploadImage(store, "avatars", "Avatar uploaded")
 }
 
-var allowedVideoTypes = map[string]bool{
-	"video/mp4":       true,
-	"video/quicktime": true,
+// UploadCover handles POST /api/v1/upload/cover (Pattern A — server-side multipart upload).
+func UploadCover(store storage.MediaStore) gin.HandlerFunc {
+	return uploadImage(store, "covers", "Cover image uploaded")
 }
 
-// UploadAvatar handles POST /api/v1/upload/avatar
-func UploadAvatar(store storage.Storage) gin.HandlerFunc {
+// UploadPostMedia handles POST /api/v1/upload/post (Pattern A — server-side multipart upload).
+func UploadPostMedia(store storage.MediaStore) gin.HandlerFunc {
+	return uploadImage(store, "posts", "Media uploaded")
+}
+
+func uploadImage(store storage.MediaStore, folder, message string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := auth.GetUserID(c)
 		if userID == "" {
@@ -39,91 +41,48 @@ func UploadAvatar(store storage.Storage) gin.HandlerFunc {
 		}
 		defer file.Close()
 
-		// Check file size (max 5MB for avatars)
-		if header.Size > 5*1024*1024 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "File too large. Maximum 5MB"})
+		if header.Size > storage.MaxUploadSize {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "File too large. Maximum 10MB"})
 			return
 		}
 
-		// Check content type
-		contentType := header.Header.Get("Content-Type")
-		if !allowedImageTypes[contentType] {
+		contentType, err := detectImageContentType(file)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read file"})
+			return
+		}
+		if !storage.AllowedImageContentTypes[contentType] {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Allowed: JPEG, PNG, GIF, WebP"})
 			return
 		}
 
-		// Upload file
-		filename, err := store.Upload(c.Request.Context(), "avatars", file, contentType)
+		key, err := storage.GenerateKey(folder, userID, header.Filename, contentType)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to upload file",
-			})
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
-		url := store.GetURL(filename)
+		if err := store.PutObject(c.Request.Context(), key, file, header.Size, contentType); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload file"})
+			return
+		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"message":  "Avatar uploaded",
-			"filename": filename,
-			"url":      url,
+			"message": message,
+			"key":     key,
+			"url":     storage.ResolveMediaURL(store, key),
 		})
 	}
 }
 
-// UploadPostMedia handles POST /api/v1/upload/post
-func UploadPostMedia(store storage.Storage) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userID := auth.GetUserID(c)
-		if userID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-			return
-		}
-
-		file, header, err := c.Request.FormFile("file")
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
-			return
-		}
-		defer file.Close()
-
-		// Check file size (max 50MB for posts)
-		if header.Size > 50*1024*1024 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "File too large. Maximum 50MB"})
-			return
-		}
-
-		// Check content type
-		contentType := header.Header.Get("Content-Type")
-		isImage := allowedImageTypes[contentType]
-		isVideo := allowedVideoTypes[contentType]
-
-		if !isImage && !isVideo {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file type. Allowed: JPEG, PNG, GIF, WebP, MP4, MOV"})
-			return
-		}
-
-		// Upload file
-		filename, err := store.Upload(c.Request.Context(), "posts", file, contentType)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to upload file",
-			})
-			return
-		}
-
-		url := store.GetURL(filename)
-		mediaType := "image"
-		if isVideo {
-			mediaType = "video"
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message":    "Media uploaded",
-			"filename":   filename,
-			"url":        url,
-			"media_type": mediaType,
-			"extension":  filepath.Ext(filename),
-		})
+func detectImageContentType(file multipart.File) (string, error) {
+	var buf [512]byte
+	n, err := file.Read(buf[:])
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return "", err
 	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", err
+	}
+	return http.DetectContentType(buf[:n]), nil
 }

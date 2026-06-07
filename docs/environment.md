@@ -25,11 +25,34 @@ Copy `.env.example` as a starting point.
 | `CASSANDRA_PORT` | Cassandra CQL port | `9042` |
 | `REDIS_HOST` | Redis host | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
-| `UPLOAD_PATH` | Directory for file uploads | `./uploads` |
 | `BASE_URL` | Base URL for generated links | `http://localhost:8080` |
 | `GIN_MODE` | Gin framework mode | `debug` |
 | `ALLOWED_ORIGINS` | CORS origins (comma-separated) | `http://localhost:3000` |
 | `APP_ENV` | Environment name (`development`, `staging`, `production`) | `development` |
+
+## Storage (Cloudflare R2)
+
+Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. When `R2_ACCOUNT_ID` is not set, the API logs a warning and upload endpoints return errors.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `R2_ACCOUNT_ID` | Yes (prod) | Cloudflare account ID |
+| `R2_ACCESS_KEY_ID` | Yes (prod) | R2 API token access key ID |
+| `R2_SECRET_ACCESS_KEY` | Yes (prod) | R2 API token secret |
+| `R2_BUCKET_NAME` | No | Bucket name (default: `geoloc-media`) |
+| `R2_PUBLIC_DOMAIN` | No | Public CDN base URL for served assets (recommended for prod), e.g. `https://pub-xxx.r2.dev` |
+
+**Example (production):**
+
+```env
+R2_ACCOUNT_ID=your-account-id
+R2_ACCESS_KEY_ID=your-access-key
+R2_SECRET_ACCESS_KEY=your-secret-key
+R2_BUCKET_NAME=geoloc-media
+R2_PUBLIC_DOMAIN=https://media.yourdomain.com
+```
+
+Apply migration `migrations/009_cover_image_url.cql` before using cover image uploads.
 
 ## Optional — Kafka
 

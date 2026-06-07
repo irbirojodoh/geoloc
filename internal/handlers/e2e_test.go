@@ -38,7 +38,7 @@ func setupE2ERouter() *gin.Engine {
 	notifDispatcher := notifications.NewDispatcher(nil, notifRepo, nil)
 	locRepo := data.NewLocationRepository(testSession, nil) // nil geocoder for tests
 	locFollowRepo := data.NewLocationFollowRepository(testSession)
-	store := storage.NewLocalStorage("/tmp/test-uploads", "http://localhost:8080/uploads")
+	mediaStore := storage.NewMemoryMediaStore("http://localhost:8080/media")
 	deviceRepo := data.NewDeviceRepository(testSession)
 	resetRepo := data.NewPasswordResetRepository(testSession)
 	modRepo := data.NewModerationRepository(testSession)
@@ -55,17 +55,17 @@ func setupE2ERouter() *gin.Engine {
 	api.Use(auth.AuthRequired())
 	{
 		// Feed
-		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo))
+		api.GET("/feed", GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo, mediaStore))
 
 		// Profile
-		api.GET("/users/me", GetCurrentUser(userRepo))
-		api.PUT("/users/me", UpdateProfile(userRepo, followRepo, nil))
+		api.GET("/users/me", GetCurrentUser(userRepo, mediaStore))
+		api.PUT("/users/me", UpdateProfile(userRepo, followRepo, nil, mediaStore))
 		api.DELETE("/users/me", DeleteAccount(userRepo))
 
 		// Users
-		api.GET("/users/:id", GetUser(userRepo))
-		api.GET("/users/username/:username", GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo))
+		api.GET("/users/:id", GetUser(userRepo, mediaStore))
+		api.GET("/users/username/:username", GetUserByUsername(userRepo, mediaStore))
+		api.GET("/users/:id/posts", GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo, mediaStore))
 
 		// Follow
 		api.POST("/users/:id/follow", FollowUser(followRepo, notifDispatcher))
@@ -82,8 +82,8 @@ func setupE2ERouter() *gin.Engine {
 		api.GET("/users/me/muted", GetMutedUsers(modRepo))
 
 		// Posts
-		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher, nil))
-		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo))
+		api.POST("/posts", CreatePost(postRepo, userRepo, notifDispatcher, nil, mediaStore))
+		api.GET("/posts/:id", GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo, mediaStore))
 		api.DELETE("/posts/:id", DeletePost(postRepo))
 
 		// data.Post likes
@@ -93,7 +93,7 @@ func setupE2ERouter() *gin.Engine {
 
 		// Comments
 		api.POST("/posts/:id/comments", CreateComment(commentRepo, postRepo, notifDispatcher))
-		api.GET("/posts/:id/comments", GetComments(commentRepo, userRepo, likeRepo))
+		api.GET("/posts/:id/comments", GetComments(commentRepo, userRepo, likeRepo, mediaStore))
 
 		// data.Comment actions
 		api.POST("/comments/:id/reply", ReplyToComment(commentRepo, notifDispatcher))
@@ -103,8 +103,8 @@ func setupE2ERouter() *gin.Engine {
 		api.DELETE("/comments/:id", DeleteComment(commentRepo))
 
 		// Search
-		api.GET("/search/users", SearchUsers(userRepo))
-		api.GET("/search/posts", SearchPosts(postRepo, userRepo, likeRepo, commentRepo))
+		api.GET("/search/users", SearchUsers(userRepo, mediaStore))
+		api.GET("/search/posts", SearchPosts(postRepo, userRepo, likeRepo, commentRepo, mediaStore))
 
 		// Notifications
 		api.GET("/notifications", GetNotifications(notifRepo))
@@ -115,9 +115,12 @@ func setupE2ERouter() *gin.Engine {
 		api.DELETE("/locations/:geohash/follow", UnfollowLocation(locFollowRepo))
 		api.GET("/locations/following", GetFollowedLocations(locFollowRepo))
 
+		RegisterMediaRoutes(api, &MediaHandler{Store: mediaStore})
+
 		// Upload
-		api.POST("/upload/avatar", UploadAvatar(store))
-		api.POST("/upload/post", UploadPostMedia(store))
+		api.POST("/upload/avatar", UploadAvatar(mediaStore))
+		api.POST("/upload/cover", UploadCover(mediaStore))
+		api.POST("/upload/post", UploadPostMedia(mediaStore))
 
 		// Push Devices
 		api.POST("/devices", RegisterDevice(deviceRepo))

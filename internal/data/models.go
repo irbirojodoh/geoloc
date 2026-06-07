@@ -67,7 +67,8 @@ type Post struct {
 type CreatePostRequest struct {
 	UserID    string   `json:"user_id"` // Set from auth context, not trusted from request body
 	Content   string   `json:"content" binding:"required"`
-	MediaURLs []string `json:"media_urls"` // Max 4 URLs
+	MediaURLs []string `json:"media_urls"` // Max 4 URLs (legacy or external)
+	MediaKeys []string `json:"media_keys"` // Max 4 R2 object keys (Pattern B)
 	Latitude  float64  `json:"latitude" binding:"required"`
 	Longitude float64  `json:"longitude" binding:"required"`
 	IPAddress string   `json:"-"` // Set from request context
@@ -83,9 +84,19 @@ type GetFeedRequest struct {
 	Cursor    string  `form:"cursor"`
 }
 
-// ValidateMediaURLs checks if media URLs array has max 4 items
+// MediaCount returns the total number of media attachments on the request.
+func (r *CreatePostRequest) MediaCount() int {
+	return len(r.MediaURLs) + len(r.MediaKeys)
+}
+
+// ValidateMedia checks if media arrays have at most 4 items total.
+func (r *CreatePostRequest) ValidateMedia() bool {
+	return r.MediaCount() <= 4
+}
+
+// ValidateMediaURLs is kept for backward compatibility.
 func (r *CreatePostRequest) ValidateMediaURLs() bool {
-	return len(r.MediaURLs) <= 4
+	return r.ValidateMedia()
 }
 
 // GenerateUUID creates a new UUID string
@@ -158,6 +169,9 @@ type UpdateProfileRequest struct {
 	Bio               string `json:"bio"`
 	PhoneNumber       string `json:"phone_number"`
 	ProfilePictureURL string `json:"profile_picture_url"`
+	AvatarKey         string `json:"avatar_key"`
+	CoverImageURL     string `json:"cover_image_url"`
+	CoverKey          string `json:"cover_key"`
 }
 
 // ============== FOLLOWS ==============

@@ -16,6 +16,7 @@ import (
 	"social-geo-go/internal/notifications"
 	"social-geo-go/internal/notifications/kafka"
 	"social-geo-go/internal/search"
+	"social-geo-go/internal/storage"
 )
 
 // EnrichPosts adds author, location, and like fields to posts (same shape as GET /api/v1/feed items).
@@ -27,6 +28,7 @@ func EnrichPosts(
 	likeRepo *data.LikeRepository,
 	commentRepo *data.CommentRepository,
 	currentUserID string,
+	store storage.MediaStore,
 ) {
 	if len(posts) == 0 {
 		return
@@ -58,7 +60,7 @@ func EnrichPosts(
 		for i := range posts {
 			if info, ok := userInfoMap[posts[i].UserID]; ok {
 				posts[i].Username = info.Username
-				posts[i].ProfilePictureURL = info.ProfilePictureURL
+				posts[i].ProfilePictureURL = storage.ResolveMediaURL(store, info.ProfilePictureURL)
 			}
 		}
 	}
@@ -90,10 +92,12 @@ func EnrichPosts(
 			posts[i].CommentCount = commentCounts[posts[i].ID]
 		}
 	}
+
+	ResolvePostsMediaURLs(store, posts)
 }
 
 // CreatePost handles POST /api/v1/posts
-func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher, postIndexer search.PostIndexer) gin.HandlerFunc {
+func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, notifDispatcher *notifications.NotificationDispatcher, postIndexer search.PostIndexer, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.CreatePostRequest
 
@@ -119,10 +123,10 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 			return
 		}
 
-		// Validate media URLs (max 4)
-		if !req.ValidateMediaURLs() {
+		// Validate media (max 4 total)
+		if !req.ValidateMedia() {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Maximum 4 media URLs allowed",
+				"error": "Maximum 4 media items allowed",
 			})
 			return
 		}
@@ -133,6 +137,13 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 			return
 		}
+
+		mediaURLs, err := preparePostMedia(store, req.UserID, req.MediaURLs, req.MediaKeys)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		req.MediaURLs = mediaURLs
 
 		// Capture IP address and user agent for tracking
 		req.IPAddress = c.ClientIP()
@@ -190,13 +201,34 @@ func CreatePost(postRepo *data.PostRepository, userRepo *data.UserRepository, no
 
 		c.JSON(http.StatusCreated, gin.H{
 			"message": "Post created successfully",
-			"post":    post,
+			"post":    resolvePostForResponse(store, post),
 		})
 	}
 }
 
+func resolvePostForResponse(store storage.MediaStore, post *data.Post) *data.Post {
+	if post == nil {
+		return nil
+	}
+	out := *post
+	ResolvePostMediaURLs(store, &out)
+	return &out
+}
+
+func preparePostMedia(store storage.MediaStore, userID string, urls, keys []string) ([]string, error) {
+	out := make([]string, 0, len(urls)+len(keys))
+	out = append(out, urls...)
+	for _, key := range keys {
+		if err := validateOwnedMediaKey(key, userID, "posts"); err != nil {
+			return nil, err
+		}
+		out = append(out, storage.StoredMediaValue(store, key))
+	}
+	return out, nil
+}
+
 // GetFeed handles GET /api/v1/feed
-func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, modRepo *data.ModerationRepository) gin.HandlerFunc {
+func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, modRepo *data.ModerationRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req data.GetFeedRequest
 
@@ -285,7 +317,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			nextCursor = data.EncodeCursor(posts[len(posts)-1].CreatedAt)
 		}
 
-		EnrichPosts(c.Request.Context(), posts, userRepo, locRepo, likeRepo, commentRepo, currentUserID)
+		EnrichPosts(c.Request.Context(), posts, userRepo, locRepo, likeRepo, commentRepo, currentUserID, store)
 
 		c.JSON(http.StatusOK, data.PaginatedResponse{
 			Data:       posts,
@@ -297,7 +329,7 @@ func GetFeed(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 }
 
 // GetPost handles GET /api/v1/posts/:id
-func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
+func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
@@ -352,11 +384,10 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			post.CommentCount = commentCount
 		}
 
-		response := gin.H{
-			"post": post,
-		}
+		response := gin.H{}
 
 		if user != nil {
+			ResolveUserMediaURLs(store, user)
 			response["user"] = gin.H{
 				"id":                  user.ID,
 				"username":            user.Username,
@@ -365,12 +396,15 @@ func GetPost(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *
 			}
 		}
 
+		resolvedPost := resolvePostForResponse(store, post)
+		response["post"] = resolvedPost
+
 		c.JSON(http.StatusOK, response)
 	}
 }
 
 // GetUserPosts handles GET /api/v1/users/:id/posts
-func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
+func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locRepo *data.LocationRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID := c.Param("id")
 
@@ -468,6 +502,9 @@ func GetUserPosts(repo *data.PostRepository, userRepo *data.UserRepository, locR
 				}
 			}
 		}
+
+		ResolvePostsMediaURLs(store, posts)
+		ResolveUserMediaURLs(store, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"user": gin.H{

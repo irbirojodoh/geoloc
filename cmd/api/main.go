@@ -107,10 +107,20 @@ func main() {
 		commentCounter = cache.NewCommentCounter(redisClient)
 	}
 
-	// Initialize storage
-	uploadPath := getEnv("UPLOAD_PATH", "./uploads")
-	baseURL := getEnv("BASE_URL", "http://localhost:8080")
-	store := storage.NewLocalStorage(uploadPath, baseURL+"/uploads")
+	// Initialize Cloudflare R2 media storage
+	var mediaStore storage.MediaStore
+	if os.Getenv("R2_ACCOUNT_ID") != "" {
+		r2Store, err := storage.NewR2StoreFromEnv()
+		if err != nil {
+			log.Fatalf("Failed to initialize R2 storage: %v", err)
+		}
+		mediaStore = r2Store
+		slog.Info("R2 media storage configured", "bucket", os.Getenv("R2_BUCKET_NAME"))
+	} else {
+		slog.Warn("R2_ACCOUNT_ID not set — media uploads will fail until R2 is configured")
+		mediaStore = storage.NewNoopMediaStore()
+	}
+	mediaHandler := &handlers.MediaHandler{Store: mediaStore}
 
 	// Initialize push service
 	deviceRepo := data.NewDeviceRepository(session)
@@ -177,7 +187,7 @@ func main() {
 	// Initialize Elasticsearch and search service
 	esClient := search.NewESClient()
 	searchSvc := search.NewService(esClient, rawRedisClient)
-	searchHandler := handlers.NewNewSearchHandler(searchSvc, session, userRepo, locRepo, likeRepo, commentRepo)
+	searchHandler := handlers.NewNewSearchHandler(searchSvc, session, userRepo, locRepo, likeRepo, commentRepo, mediaStore)
 
 	// Setup Gin router
 	router := gin.Default()
@@ -206,9 +216,6 @@ func main() {
 	config.AllowHeaders = []string{"Origin", "Content-Type", "Authorization"}
 	router.Use(cors.New(config))
 	slog.Info("CORS configured", "allowed_origins", config.AllowOrigins)
-
-	// Serve uploaded files
-	router.Static("/uploads", uploadPath)
 
 	// Health check (checks Cassandra + Redis)
 	router.GET("/health", func(c *gin.Context) {
@@ -269,20 +276,20 @@ func main() {
 	api.Use(auth.AuthRequired())
 	{
 		// Feed (now protected — filters blocked/muted users)
-		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo))
+		api.GET("/feed", handlers.GetFeed(postRepo, userRepo, locRepo, likeRepo, commentRepo, modRepo, mediaStore))
 
 		// Geocode
 		api.GET("/geocode/address", handlers.GetAddress(locRepo))
 
 		// Profile
-		api.GET("/users/me", handlers.GetCurrentUser(userRepo))
-		api.PUT("/users/me", handlers.UpdateProfile(userRepo, followRepo, searchIndexer))
+		api.GET("/users/me", handlers.GetCurrentUser(userRepo, mediaStore))
+		api.PUT("/users/me", handlers.UpdateProfile(userRepo, followRepo, searchIndexer, mediaStore))
 		api.DELETE("/users/me", handlers.DeleteAccount(userRepo))
 
 		// User routes
-		api.GET("/users/:id", handlers.GetUser(userRepo))
-		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo))
-		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo))
+		api.GET("/users/:id", handlers.GetUser(userRepo, mediaStore))
+		api.GET("/users/username/:username", handlers.GetUserByUsername(userRepo, mediaStore))
+		api.GET("/users/:id/posts", handlers.GetUserPosts(postRepo, userRepo, locRepo, likeRepo, commentRepo, mediaStore))
 		api.GET("/users/:id/liked-posts", handlers.GetLikedPosts(likeRepo, postRepo, userRepo, locRepo))
 
 		// Follow routes
@@ -300,8 +307,8 @@ func main() {
 		api.GET("/users/me/muted", handlers.GetMutedUsers(modRepo))
 
 		// Post routes
-		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, searchIndexer))
-		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo))
+		api.POST("/posts", handlers.CreatePost(postRepo, userRepo, notifDispatcher, searchIndexer, mediaStore))
+		api.GET("/posts/:id", handlers.GetPost(postRepo, userRepo, locRepo, likeRepo, commentRepo, mediaStore))
 		api.DELETE("/posts/:id", handlers.DeletePost(postRepo))
 
 		// Post likes (legacy + new idempotent toggle)
@@ -311,11 +318,11 @@ func main() {
 
 		// Post comments
 		api.POST("/posts/:id/comments", handlers.CreateComment(commentRepo, postRepo, notifDispatcher))
-		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo, userRepo, likeRepo))
+		api.GET("/posts/:id/comments", handlers.GetComments(commentRepo, userRepo, likeRepo, mediaStore))
 
 		// Comment routes
 		api.POST("/comments/:id/reply", handlers.ReplyToComment(commentRepo, notifDispatcher))
-		api.GET("/comments/:id/replies", handlers.GetReplies(commentRepo, userRepo, likeRepo))
+		api.GET("/comments/:id/replies", handlers.GetReplies(commentRepo, userRepo, likeRepo, mediaStore))
 		api.PUT("/comments/:id", handlers.EditComment(commentRepo))
 		api.DELETE("/comments/:id", handlers.DeleteComment(commentRepo))
 		api.POST("/comments/:id/like", handlers.LikeComment(likeRepo))
@@ -339,17 +346,21 @@ func main() {
 		api.DELETE("/notifications/:id", handlers.DeleteNotification(notifRepo))
 
 		// Search routes (legacy Cassandra-backed)
-		api.GET("/search/users", handlers.SearchUsers(userRepo))
-		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo, commentRepo))
+		api.GET("/search/users", handlers.SearchUsers(userRepo, mediaStore))
+		api.GET("/search/posts", handlers.SearchPosts(postRepo, userRepo, likeRepo, commentRepo, mediaStore))
 
 		// Search routes (Elasticsearch-backed)
 		api.GET("/search/nearby", searchHandler.SearchNearbyHandler)
 		api.GET("/search", searchHandler.SearchHandler)
 		api.GET("/autocomplete", searchHandler.AutocompleteHandler)
 
-		// Upload routes
-		api.POST("/upload/avatar", handlers.UploadAvatar(store))
-		api.POST("/upload/post", handlers.UploadPostMedia(store))
+		// Media (R2 signed URLs + direct upload helpers)
+		handlers.RegisterMediaRoutes(api, mediaHandler)
+
+		// Upload routes (server-side multipart → R2)
+		api.POST("/upload/avatar", handlers.UploadAvatar(mediaStore))
+		api.POST("/upload/cover", handlers.UploadCover(mediaStore))
+		api.POST("/upload/post", handlers.UploadPostMedia(mediaStore))
 
 		// Device registration (push notifications)
 		api.POST("/devices", handlers.RegisterDevice(deviceRepo))
@@ -405,9 +416,9 @@ func main() {
 
 	// Start server
 	port := getEnv("PORT", "8080")
+	baseURL := getEnv("BASE_URL", "http://localhost:8080")
 
-	slog.Info("Starting Server", "url", baseURL)
-	slog.Info("Uploads directory: ", "upload_path", uploadPath)
+	slog.Info("Starting Server", "url", baseURL, "port", port)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

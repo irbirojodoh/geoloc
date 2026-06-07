@@ -167,12 +167,12 @@ func (r *UserRepository) GetUserByID(ctx context.Context, id string) (*User, err
 
 	var user User
 	err = r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, cover_image_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE id = ?
 	`, userID).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.CoverImageURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -196,12 +196,12 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 	var userID gocql.UUID
 
 	err := r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, cover_image_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE username = ?
 	`, username).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.CoverImageURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -225,12 +225,12 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
 	var userID gocql.UUID
 
 	err := r.session.Query(`
-		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, password_hash, is_deleted, created_at, updated_at
+		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, cover_image_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE email = ?
 	`, email).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
-		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
+		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.CoverImageURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
 	)
 
 	if err != nil {
@@ -248,8 +248,8 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
 	return &user, nil
 }
 
-// UpdateUser updates user profile fields
-func (r *UserRepository) UpdateUser(ctx context.Context, id string, fullName, bio, profilePictureURL string) (*User, error) {
+// UpdateUser updates user profile fields including avatar and cover image URLs.
+func (r *UserRepository) UpdateUser(ctx context.Context, id string, fullName, bio, phoneNumber, profilePictureURL, coverImageURL string) (*User, error) {
 	userID, err := gocql.ParseUUID(id)
 	if err != nil {
 		return nil, fmt.Errorf("invalid user_id: %w", err)
@@ -258,9 +258,9 @@ func (r *UserRepository) UpdateUser(ctx context.Context, id string, fullName, bi
 	now := time.Now()
 	err = r.session.Query(`
 		UPDATE users
-		SET full_name = ?, bio = ?, profile_picture_url = ?, updated_at = ?
+		SET full_name = ?, bio = ?, phone_number = ?, profile_picture_url = ?, cover_image_url = ?, updated_at = ?
 		WHERE id = ?
-	`, fullName, bio, profilePictureURL, now, userID).WithContext(ctx).Exec()
+	`, fullName, bio, phoneNumber, profilePictureURL, coverImageURL, now, userID).WithContext(ctx).Exec()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to update user: %w", err)

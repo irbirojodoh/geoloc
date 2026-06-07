@@ -7,12 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/storage"
 )
 
 // GetCurrentUser handles GET /api/v1/users/me - returns the logged-in user's profile
-func GetCurrentUser(repo *data.UserRepository) gin.HandlerFunc {
+func GetCurrentUser(repo *data.UserRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get user_id from JWT token (set by auth middleware)
 		userID, exists := c.Get("user_id")
 		if !exists {
 			c.JSON(http.StatusUnauthorized, gin.H{
@@ -31,10 +31,12 @@ func GetCurrentUser(repo *data.UserRepository) gin.HandlerFunc {
 			}
 
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch user",
+				"error": "Failed to fetch user",
 			})
 			return
 		}
+
+		ResolveUserMediaURLs(store, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"user": user,
@@ -49,14 +51,13 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "Invalid request body",
+				"error": "Invalid request body",
 			})
 			return
 		}
 
 		user, err := repo.CreateUser(c.Request.Context(), &req)
 		if err != nil {
-			// Check for unique constraint violations
 			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "already exists") {
 				c.JSON(http.StatusConflict, gin.H{
 					"error": "Username or email already exists",
@@ -65,7 +66,7 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 			}
 
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to create user",
+				"error": "Failed to create user",
 			})
 			return
 		}
@@ -78,11 +79,10 @@ func CreateUser(repo *data.UserRepository) gin.HandlerFunc {
 }
 
 // GetUser handles GET /api/v1/users/:id
-func GetUser(repo *data.UserRepository) gin.HandlerFunc {
+func GetUser(repo *data.UserRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 
-		// Validate UUID format (basic check)
 		if len(id) != 36 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid user ID format",
@@ -100,10 +100,12 @@ func GetUser(repo *data.UserRepository) gin.HandlerFunc {
 			}
 
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch user",
+				"error": "Failed to fetch user",
 			})
 			return
 		}
+
+		ResolveUserMediaURLs(store, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"user": user,
@@ -112,7 +114,7 @@ func GetUser(repo *data.UserRepository) gin.HandlerFunc {
 }
 
 // GetUserByUsername handles GET /api/v1/users/username/:username
-func GetUserByUsername(repo *data.UserRepository) gin.HandlerFunc {
+func GetUserByUsername(repo *data.UserRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		username := c.Param("username")
 
@@ -126,10 +128,12 @@ func GetUserByUsername(repo *data.UserRepository) gin.HandlerFunc {
 			}
 
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to fetch user",
+				"error": "Failed to fetch user",
 			})
 			return
 		}
+
+		ResolveUserMediaURLs(store, user)
 
 		c.JSON(http.StatusOK, gin.H{
 			"user": user,

@@ -15,10 +15,11 @@ import (
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
 	"social-geo-go/internal/search"
+	"social-geo-go/internal/storage"
 )
 
 // SearchUsers handles GET /api/v1/search/users (legacy Cassandra-backed search)
-func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
+func SearchUsers(userRepo *data.UserRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := strings.TrimSpace(c.Query("q"))
 		if query == "" {
@@ -44,6 +45,10 @@ func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
 			return
 		}
 
+		for i := range users {
+			ResolveUserMediaURLs(store, &users[i])
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"query":   query,
 			"results": users,
@@ -53,7 +58,7 @@ func SearchUsers(userRepo *data.UserRepository) gin.HandlerFunc {
 }
 
 // SearchPosts handles GET /api/v1/search/posts (legacy Cassandra-backed search)
-func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository) gin.HandlerFunc {
+func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, likeRepo *data.LikeRepository, commentRepo *data.CommentRepository, store storage.MediaStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := strings.TrimSpace(c.Query("q"))
 		if query == "" {
@@ -104,7 +109,7 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 			for i := range posts {
 				if info, ok := userInfoMap[posts[i].UserID]; ok {
 					posts[i].Username = info.Username
-					posts[i].ProfilePictureURL = info.ProfilePictureURL
+					posts[i].ProfilePictureURL = storage.ResolveMediaURL(store, info.ProfilePictureURL)
 				}
 				if info, ok := likeInfo[posts[i].ID]; ok {
 					posts[i].IsLiked = info.IsLiked
@@ -112,6 +117,7 @@ func SearchPosts(postRepo *data.PostRepository, userRepo *data.UserRepository, l
 				}
 				posts[i].CommentCount = commentCounts[posts[i].ID]
 			}
+			ResolvePostsMediaURLs(store, posts)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
@@ -130,6 +136,7 @@ type NewSearchHandler struct {
 	locRepo     *data.LocationRepository
 	likeRepo    *data.LikeRepository
 	commentRepo *data.CommentRepository
+	mediaStore  storage.MediaStore
 }
 
 // NewNewSearchHandler creates a new NewSearchHandler.
@@ -140,6 +147,7 @@ func NewNewSearchHandler(
 	locRepo *data.LocationRepository,
 	likeRepo *data.LikeRepository,
 	commentRepo *data.CommentRepository,
+	mediaStore storage.MediaStore,
 ) *NewSearchHandler {
 	return &NewSearchHandler{
 		svc:         svc,
@@ -148,6 +156,7 @@ func NewNewSearchHandler(
 		locRepo:     locRepo,
 		likeRepo:    likeRepo,
 		commentRepo: commentRepo,
+		mediaStore:  mediaStore,
 	}
 }
 
@@ -167,7 +176,7 @@ func (h *NewSearchHandler) hydrateAndEnrichPosts(
 	}
 
 	hydratedPosts, _ := search.HydratePosts(ctx, postIDs, h.session)
-	EnrichPosts(ctx, hydratedPosts, h.userRepo, h.locRepo, h.likeRepo, h.commentRepo, currentUserID)
+	EnrichPosts(ctx, hydratedPosts, h.userRepo, h.locRepo, h.likeRepo, h.commentRepo, currentUserID, h.mediaStore)
 
 	if len(distanceByPostID) > 0 {
 		for i := range hydratedPosts {
