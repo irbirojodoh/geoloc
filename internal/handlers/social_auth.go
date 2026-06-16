@@ -1,13 +1,16 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/models"
 	"social-geo-go/internal/search"
 )
 
@@ -27,7 +30,7 @@ type SocialLoginRequest struct {
 //
 // Request body: { "id_token": "eyJ..." }
 // Response:     { "user": {...}, "access_token": "...", "refresh_token": "...", "is_new_user": true }
-func GoogleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
+func GoogleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer, dmRepo data.DMRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SocialLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -71,12 +74,34 @@ func GoogleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndex
 			return
 		}
 
+		// Retrieve active key backup if exists
+		var keyBackup *models.DMIdentityBackup
+		userUUID, err := gocql.ParseUUID(user.ID)
+		if err == nil {
+			keyBackup, err = dmRepo.GetIdentityBackup(c.Request.Context(), userUUID, 0)
+			if err != nil {
+				slog.Error("Failed to fetch key backup on Google login", "error", err, "user_id", user.ID)
+			}
+		}
+
+		var kbResponse any = nil
+		if keyBackup != nil {
+			kbResponse = gin.H{
+				"ciphertext":     keyBackup.Ciphertext,
+				"nonce":          keyBackup.Nonce,
+				"kdf_salt":       keyBackup.KdfSalt,
+				"backup_version": keyBackup.BackupVersion,
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"user":          user,
 			"access_token":  tokens.AccessToken,
+			"token":         tokens.AccessToken,
 			"refresh_token": tokens.RefreshToken,
 			"expires_in":    tokens.ExpiresIn,
 			"is_new_user":   isNew,
+			"key_backup":    kbResponse,
 		})
 	}
 }
@@ -87,7 +112,7 @@ func GoogleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndex
 // Request body: { "id_token": "eyJ...", "full_name": "Jane Doe" }
 // Note: full_name should be sent on first sign-in only; Apple won't include it in future logins.
 // Response:     { "user": {...}, "access_token": "...", "refresh_token": "...", "is_new_user": true }
-func AppleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer) gin.HandlerFunc {
+func AppleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexer, dmRepo data.DMRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SocialLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -138,12 +163,34 @@ func AppleLogin(userRepo *data.UserRepository, searchIndexer search.SearchIndexe
 			return
 		}
 
+		// Retrieve active key backup if exists
+		var keyBackup *models.DMIdentityBackup
+		userUUID, err := gocql.ParseUUID(user.ID)
+		if err == nil {
+			keyBackup, err = dmRepo.GetIdentityBackup(c.Request.Context(), userUUID, 0)
+			if err != nil {
+				slog.Error("Failed to fetch key backup on Apple login", "error", err, "user_id", user.ID)
+			}
+		}
+
+		var kbResponse any = nil
+		if keyBackup != nil {
+			kbResponse = gin.H{
+				"ciphertext":     keyBackup.Ciphertext,
+				"nonce":          keyBackup.Nonce,
+				"kdf_salt":       keyBackup.KdfSalt,
+				"backup_version": keyBackup.BackupVersion,
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"user":          user,
 			"access_token":  tokens.AccessToken,
+			"token":         tokens.AccessToken,
 			"refresh_token": tokens.RefreshToken,
 			"expires_in":    tokens.ExpiresIn,
 			"is_new_user":   isNew,
+			"key_backup":    kbResponse,
 		})
 	}
 }

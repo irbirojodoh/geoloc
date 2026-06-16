@@ -491,6 +491,14 @@ func (r *UserRepository) SoftDeleteUser(ctx context.Context, userID string) erro
 		return fmt.Errorf("failed to soft-delete user: %w", err)
 	}
 
-	slog.Info("[ACCOUNT] User soft-deleted and PII anonymized", "user_id", userID)
+	// Delete key backup entry to satisfy GDPR requirement
+	err = r.session.Query(`
+		DELETE FROM user_dm_identity_backups WHERE user_id = ?
+	`, uid).WithContext(ctx).Exec()
+	if err != nil {
+		return fmt.Errorf("failed to delete user key backup: %w", err)
+	}
+
+	slog.Info("[ACCOUNT] User soft-deleted, PII anonymized and key backups cleared", "user_id", userID)
 	return nil
 }

@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
 
 	"social-geo-go/internal/auth"
 	"social-geo-go/internal/data"
+	"social-geo-go/internal/models"
 	"social-geo-go/internal/search"
 )
 
@@ -118,7 +120,7 @@ func Register(userRepo *data.UserRepository, searchIndexer search.SearchIndexer)
 }
 
 // Login handles POST /auth/login
-func Login(userRepo *data.UserRepository) gin.HandlerFunc {
+func Login(userRepo *data.UserRepository, dmRepo data.DMRepository) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req LoginRequest
 
@@ -175,9 +177,30 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 		// Update last seen (non-blocking, use Background context so it survives request completion)
 		go userRepo.UpdateLastSeen(context.Background(), user.ID, c.ClientIP()) //nolint:errcheck
 
+		// Retrieve active key backup if exists
+		var keyBackup *models.DMIdentityBackup
+		userUUID, err := gocql.ParseUUID(user.ID)
+		if err == nil {
+			keyBackup, err = dmRepo.GetIdentityBackup(c.Request.Context(), userUUID, 0)
+			if err != nil {
+				slog.Error("Failed to fetch key backup on login", "error", err, "user_id", user.ID)
+			}
+		}
+
+		var kbResponse any = nil
+		if keyBackup != nil {
+			kbResponse = gin.H{
+				"ciphertext":     keyBackup.Ciphertext,
+				"nonce":          keyBackup.Nonce,
+				"kdf_salt":       keyBackup.KdfSalt,
+				"backup_version": keyBackup.BackupVersion,
+			}
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"message":       "Login successful",
 			"access_token":  tokens.AccessToken,
+			"token":         tokens.AccessToken,
 			"refresh_token": tokens.RefreshToken,
 			"expires_in":    tokens.ExpiresIn,
 			"user": gin.H{
@@ -185,6 +208,7 @@ func Login(userRepo *data.UserRepository) gin.HandlerFunc {
 				"username": user.Username,
 				"email":    user.Email,
 			},
+			"key_backup": kbResponse,
 		})
 	}
 }

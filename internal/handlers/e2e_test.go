@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gocql/gocql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,10 +43,11 @@ func setupE2ERouter() *gin.Engine {
 	deviceRepo := data.NewDeviceRepository(testSession)
 	resetRepo := data.NewPasswordResetRepository(testSession)
 	modRepo := data.NewModerationRepository(testSession)
+	dmRepo := data.NewDMRepository(testSession)
 
 	// Public routes
 	r.POST("/auth/register", Register(userRepo, nil))
-	r.POST("/auth/login", Login(userRepo))
+	r.POST("/auth/login", Login(userRepo, dmRepo))
 	r.POST("/auth/refresh", Refresh)
 	r.POST("/auth/forgot-password", ForgotPassword(userRepo, resetRepo))
 	r.POST("/auth/reset-password", ResetPassword(userRepo, resetRepo))
@@ -128,6 +130,12 @@ func setupE2ERouter() *gin.Engine {
 
 		// Reports
 		api.POST("/reports", CreateReport(modRepo))
+
+		// DM routes for key-backup tests
+		RegisterDMRoutes(api, &DMHandler{
+			DM:  dmRepo,
+			Mod: modRepo,
+		})
 	}
 
 	return r
@@ -819,4 +827,102 @@ func TestE2E_NoErrorDetailsLeaked(t *testing.T) {
 			assert.False(t, hasDetails, "Response should not contain 'details' key: %s", w.Body.String())
 		})
 	}
+}
+
+func TestE2E_KeyBackup(t *testing.T) {
+	router := setupE2ERouter()
+
+	// 1. Register and Login first
+	token, userID := registerAndLogin(t, router, "kb_user", "kb_user@test.com", "password123")
+
+	// 2. Since we just created the user, they shouldn't have any backup.
+	// Try logging in and verify key_backup is null.
+	t.Run("Login returns null key_backup when not set", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"identifier": "kb_user",
+			"password":   "password123",
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/auth/login", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		assert.Contains(t, resp, "key_backup")
+		assert.Nil(t, resp["key_backup"])
+	})
+
+	// 3. Put an identity backup
+	t.Run("PUT and GET key backup", func(t *testing.T) {
+		backupPayload := map[string]interface{}{
+			"backup_version": 1,
+			"ciphertext":     "AAAAAAAAAAAAAAAAAAAAAAAA", // 18 bytes when decoded (24 chars)
+			"nonce":          "AAAAAAAAAAAAAAAA",         // 12 bytes when decoded (16 chars)
+			"kdf_salt":       "AAAAAAAAAAAAAAAAAAAAAAAA", // 18 bytes when decoded (24 chars)
+		}
+
+		// PUT /api/v1/dm/key-backup
+		w := httptest.NewRecorder()
+		req := authedRequest("PUT", "/api/v1/dm/key-backup", backupPayload, token)
+		router.ServeHTTP(w, req)
+		require.Equal(t, http.StatusNoContent, w.Code, "PUT failed with body: %s", w.Body.String())
+
+		// GET /api/v1/dm/key-backup
+		w2 := httptest.NewRecorder()
+		req2 := authedRequest("GET", "/api/v1/dm/key-backup", nil, token)
+		router.ServeHTTP(w2, req2)
+		require.Equal(t, http.StatusOK, w2.Code, "GET failed with body: %s", w2.Body.String())
+
+		var resp map[string]interface{}
+		json.Unmarshal(w2.Body.Bytes(), &resp)
+		assert.Equal(t, float64(1), resp["backup_version"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAAAAAAAAAA", resp["ciphertext"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAA", resp["nonce"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAAAAAAAAAA", resp["kdf_salt"])
+	})
+
+	// 4. Try logging in again and verify it returns the backup payload
+	t.Run("Login returns active key_backup when set", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"identifier": "kb_user",
+			"password":   "password123",
+		})
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/auth/login", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+		var resp map[string]interface{}
+		json.Unmarshal(w.Body.Bytes(), &resp)
+
+		assert.NotNil(t, resp["key_backup"])
+		kb := resp["key_backup"].(map[string]interface{})
+		assert.Equal(t, float64(1), kb["backup_version"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAAAAAAAAAA", kb["ciphertext"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAA", kb["nonce"])
+		assert.Equal(t, "AAAAAAAAAAAAAAAAAAAAAAAA", kb["kdf_salt"])
+	})
+
+	// 5. Delete account and verify backup is deleted from the database
+	t.Run("Delete account clears key backup", func(t *testing.T) {
+		// Delete account
+		w := httptest.NewRecorder()
+		req := authedRequest("DELETE", "/api/v1/users/me", map[string]string{
+			"password": "password123",
+		}, token)
+		router.ServeHTTP(w, req)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		// Directly query Cassandra table using testSession to verify deletion
+		var count int
+		uid, err := gocql.ParseUUID(userID)
+		assert.NoError(t, err)
+
+		err = testSession.Query("SELECT COUNT(*) FROM user_dm_identity_backups WHERE user_id = ?", uid).Scan(&count)
+		assert.NoError(t, err)
+		assert.Equal(t, 0, count)
+	})
 }

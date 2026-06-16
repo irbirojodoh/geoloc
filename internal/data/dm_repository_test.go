@@ -36,7 +36,14 @@ func applyCQLMigrationFile(t *testing.T, filename string) {
 		if q == "" {
 			continue
 		}
-		require.NoError(t, testSession.Query(q).Exec(), "statement: %s", q)
+		err := testSession.Query(q).Exec()
+		if err != nil {
+			errStr := strings.ToLower(err.Error())
+			if strings.Contains(errStr, "conflicts with") || strings.Contains(errStr, "already exists") {
+				continue
+			}
+			require.NoError(t, err, "statement: %s", q)
+		}
 	}
 }
 

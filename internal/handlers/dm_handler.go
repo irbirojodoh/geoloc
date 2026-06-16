@@ -188,6 +188,7 @@ func RegisterDMRoutes(api *gin.RouterGroup, h *DMHandler) {
 	dm := api.Group("/dm")
 	{
 		dm.GET("/keys/backup", h.getIdentityBackup)
+		dm.GET("/key-backup", h.getIdentityBackup)
 		dm.GET("/keys/:userID/versions", h.listPublicKeyVersions)
 		dm.GET("/keys/:userID", h.getPublicKey)
 		dm.GET("/conversations", h.listConversations)
@@ -201,6 +202,7 @@ func RegisterDMRoutes(api *gin.RouterGroup, h *DMHandler) {
 	{
 		write.PUT("/keys", h.putPublicKey)
 		write.PUT("/keys/backup", h.putIdentityBackup)
+		write.PUT("/key-backup", h.putIdentityBackup)
 		write.POST("/conversations", h.postConversation)
 		write.POST("/conversations/:id/messages", h.postMessage)
 		write.DELETE("/conversations/:id", h.deleteConversation)

@@ -25,6 +25,8 @@ func TestMain(m *testing.M) {
 		"cassandra:4.1",
 		cassandra.WithInitScripts(
 			filepath.Join("..", "..", "migrations", "cassandra_schema.cql"),
+			filepath.Join("..", "..", "migrations", "007_dm.cql"),
+			filepath.Join("..", "..", "migrations", "008_dm_multidevice.cql"),
 		),
 	)
 	if err != nil {

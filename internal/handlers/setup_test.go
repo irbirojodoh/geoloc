@@ -22,11 +22,13 @@ func TestMain(m *testing.M) {
 	// Note: Adjust the path to 'migrations' relative to internal/handlers
 	// Since handlers is 2 levels deep (internal/handlers), we go up 2 levels
 	schemaPath := filepath.Join("..", "..", "migrations", "cassandra_schema.cql")
+	dmPath := filepath.Join("..", "..", "migrations", "007_dm.cql")
+	dmMultiPath := filepath.Join("..", "..", "migrations", "008_dm_multidevice.cql")
 
 	cassandraContainer, err := cassandra.Run(
 		ctx,
 		"cassandra:4.1",
-		cassandra.WithInitScripts(schemaPath),
+		cassandra.WithInitScripts(schemaPath, dmPath, dmMultiPath),
 	)
 	if err != nil {
 		log.Fatalf("failed to start container: %s", err)

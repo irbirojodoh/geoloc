@@ -251,11 +251,11 @@ func main() {
 
 	// ============== PUBLIC ROUTES ==============
 	router.POST("/auth/register", handlers.Register(userRepo, searchIndexer))
-	router.POST("/auth/login", handlers.Login(userRepo))
+	router.POST("/auth/login", handlers.Login(userRepo, dmRepo))
 
 	// Mobile-native social login: Flutter app verifies natively and sends ID token here
-	router.POST("/auth/google/token", handlers.GoogleLogin(userRepo, searchIndexer))
-	router.POST("/auth/apple/token", handlers.AppleLogin(userRepo, searchIndexer))
+	router.POST("/auth/google/token", handlers.GoogleLogin(userRepo, searchIndexer, dmRepo))
+	router.POST("/auth/apple/token", handlers.AppleLogin(userRepo, searchIndexer, dmRepo))
 
 	// Web-based OAuth redirect flow (kept for browser/web compatibility)
 	router.GET("/auth/:provider/login", handlers.LoginOAuth())
