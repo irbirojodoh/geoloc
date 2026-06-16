@@ -95,6 +95,20 @@ func (r *LocationRepository) GetOrFetch(ctx context.Context, geohashPrefix strin
 		return cached, nil
 	}
 
+	if r.geocoder == nil {
+		return &LocationName{
+			GeohashPrefix: geohashPrefix,
+			DisplayName:   "Mock Location, Earth",
+			Name:          "Mock Location",
+			Address: LocationAddress{
+				Country: "Earth",
+			},
+			Latitude:  lat,
+			Longitude: lng,
+			CreatedAt: time.Now(),
+		}, nil
+	}
+
 	// Fetch from Nominatim
 	info, err := r.geocoder.ReverseGeocode(ctx, lat, lng)
 	if err != nil {

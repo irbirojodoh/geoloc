@@ -32,7 +32,11 @@ Copy `.env.example` as a starting point.
 
 ## Storage (Cloudflare R2)
 
-Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. When `R2_ACCOUNT_ID` is not set, the API logs a warning and upload endpoints return errors.
+Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. The R2 bucket should be kept completely **private** (disable Public Access and Custom Domains in the Cloudflare dashboard). 
+
+The Go API serves as a secure proxy to relay media files, meaning `R2_PUBLIC_DOMAIN` is no longer used. Instead, `BASE_URL` determines the path prefix for resolving proxied media URLs.
+
+When `R2_ACCOUNT_ID` is not set, the API logs a warning and fallback media store throws errors.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -40,7 +44,7 @@ Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. 
 | `R2_ACCESS_KEY_ID` | Yes (prod) | R2 API token access key ID |
 | `R2_SECRET_ACCESS_KEY` | Yes (prod) | R2 API token secret |
 | `R2_BUCKET_NAME` | No | Bucket name (default: `geoloc-media`) |
-| `R2_PUBLIC_DOMAIN` | No | Public CDN base URL for served assets (recommended for prod), e.g. `https://pub-xxx.r2.dev` |
+| `BASE_URL` | Yes (prod) | Base URL for resolving local proxy links (e.g. `https://api.yourdomain.com`) |
 
 **Example (production):**
 
@@ -49,7 +53,7 @@ R2_ACCOUNT_ID=your-account-id
 R2_ACCESS_KEY_ID=your-access-key
 R2_SECRET_ACCESS_KEY=your-secret-key
 R2_BUCKET_NAME=geoloc-media
-R2_PUBLIC_DOMAIN=https://media.yourdomain.com
+BASE_URL=https://api.yourdomain.com
 ```
 
 Apply migration `migrations/009_cover_image_url.cql` before using cover image uploads.

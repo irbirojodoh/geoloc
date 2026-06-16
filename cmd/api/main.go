@@ -79,6 +79,7 @@ func main() {
 		cluster.ConnectTimeout = 10 * time.Second
 		cluster.NumConns = 4 // Connection Pooling limit
 		cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(gocql.RoundRobinHostPolicy())
+		cluster.DisableInitialHostLookup = true
 
 		session, err = cluster.CreateSession()
 		if err == nil {

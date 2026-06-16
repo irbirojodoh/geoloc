@@ -14,9 +14,12 @@ CREATE TABLE IF NOT EXISTS users (
     bio TEXT,
     phone_number TEXT,
     profile_picture_url TEXT,
+    cover_image_url TEXT,
     password_hash TEXT,
     last_online TIMESTAMP,
     last_ip_address TEXT,
+    is_deleted BOOLEAN,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
@@ -112,6 +115,8 @@ CREATE TABLE IF NOT EXISTS comments (
     depth INT,                 -- 1, 2, or 3 (max nesting level)
     ip_address TEXT,
     user_agent TEXT,
+    updated_at TIMESTAMP,
+    is_deleted BOOLEAN,
     created_at TIMESTAMP,
     PRIMARY KEY ((post_id), created_at, comment_id)
 ) WITH CLUSTERING ORDER BY (created_at DESC, comment_id ASC);
@@ -126,6 +131,8 @@ CREATE TABLE IF NOT EXISTS comments_by_id (
     depth INT,
     ip_address TEXT,
     user_agent TEXT,
+    updated_at TIMESTAMP,
+    is_deleted BOOLEAN,
     created_at TIMESTAMP
 );
 
@@ -201,3 +208,129 @@ CREATE TABLE IF NOT EXISTS likes_by_user (
     created_at TIMESTAMP,
     PRIMARY KEY ((user_id), created_at, target_id)
 ) WITH CLUSTERING ORDER BY (created_at DESC, target_id ASC);
+
+-- ============== PASSWORD RESET ==============
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    reset_token TEXT PRIMARY KEY,
+    user_id UUID,
+    expires_at TIMESTAMP,
+    used BOOLEAN,
+    created_at TIMESTAMP
+) WITH default_time_to_live = 3600;
+
+-- ============== CONTENT MODERATION ==============
+CREATE TABLE IF NOT EXISTS reports (
+    id UUID,
+    reporter_id UUID,
+    target_type TEXT,          -- 'post', 'comment', 'user'
+    target_id UUID,
+    reason TEXT,               -- 'spam', 'harassment', 'inappropriate', 'other'
+    description TEXT,
+    status TEXT,               -- 'pending', 'reviewed', 'resolved', 'dismissed'
+    created_at TIMESTAMP,
+    PRIMARY KEY ((target_type, target_id), id)
+);
+
+CREATE TABLE IF NOT EXISTS reports_by_user (
+    reporter_id UUID,
+    target_type TEXT,
+    target_id UUID,
+    report_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((reporter_id), created_at, report_id)
+) WITH CLUSTERING ORDER BY (created_at DESC, report_id ASC);
+
+CREATE TABLE IF NOT EXISTS blocks (
+    blocker_id UUID,
+    blocked_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((blocker_id), blocked_id)
+);
+
+CREATE TABLE IF NOT EXISTS blocked_by (
+    blocked_id UUID,
+    blocker_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((blocked_id), blocker_id)
+);
+
+CREATE TABLE IF NOT EXISTS mutes (
+    muter_id UUID,
+    muted_id UUID,
+    created_at TIMESTAMP,
+    PRIMARY KEY ((muter_id), muted_id)
+);
+
+-- ============== LOCATION NAMES CACHE ==============
+CREATE TABLE IF NOT EXISTS location_names (
+    geohash_prefix TEXT PRIMARY KEY,
+    display_name TEXT,
+    name TEXT,
+    village TEXT,
+    city_district TEXT,
+    city TEXT,
+    state TEXT,
+    region TEXT,
+    postcode TEXT,
+    country TEXT,
+    country_code TEXT,
+    latitude DOUBLE,
+    longitude DOUBLE,
+    created_at TIMESTAMP
+);
+
+-- ============== NOTIFICATIONS V2 ==============
+CREATE TABLE IF NOT EXISTS notifications_by_user (
+    user_id        UUID,
+    created_at     TIMESTAMP,
+    notification_id UUID,
+    type           TEXT,
+    actor_id       UUID,
+    target_id      UUID,
+    target_type    TEXT,
+    message        TEXT,
+    payload        MAP<TEXT, TEXT>,
+    is_read        BOOLEAN,
+    is_deleted     BOOLEAN,
+    PRIMARY KEY ((user_id), created_at, notification_id)
+) WITH CLUSTERING ORDER BY (created_at DESC, notification_id ASC)
+  AND default_time_to_live = 7776000
+  AND gc_grace_seconds = 864000;
+
+-- ============== PUSH DEVICE TOKENS ==============
+CREATE TABLE IF NOT EXISTS push_device_tokens (
+    user_id      UUID,
+    device_id    TEXT,
+    platform     TEXT,
+    fcm_token    TEXT,
+    app_version  TEXT,
+    created_at   TIMESTAMP,
+    last_seen_at TIMESTAMP,
+    PRIMARY KEY ((user_id), device_id)
+);
+
+CREATE TABLE IF NOT EXISTS device_tokens_by_token (
+    fcm_token    TEXT,
+    user_id      UUID,
+    device_id    TEXT,
+    PRIMARY KEY ((fcm_token))
+);
+
+-- ============== NOTIFICATION PREFERENCES ==============
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id              UUID PRIMARY KEY,
+    like_in_app          BOOLEAN,
+    like_push            BOOLEAN,
+    comment_in_app       BOOLEAN,
+    comment_push         BOOLEAN,
+    follow_in_app        BOOLEAN,
+    follow_push          BOOLEAN,
+    nearby_post_in_app   BOOLEAN,
+    nearby_post_push     BOOLEAN,
+    mention_in_app       BOOLEAN,
+    mention_push         BOOLEAN,
+    quiet_start          TEXT,
+    quiet_end            TEXT,
+    timezone             TEXT,
+    updated_at           TIMESTAMP
+);

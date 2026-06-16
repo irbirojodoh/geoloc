@@ -100,6 +100,50 @@ func TestMediaUploadURLSuccess(t *testing.T) {
 	assert.NotEmpty(t, resp["upload_url"])
 }
 
+func TestMediaServeMediaSuccess(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := storage.NewMemoryMediaStore("")
+	h := &MediaHandler{Store: store}
+
+	r := gin.New()
+	r.GET("/media/file", auth.AuthRequired(), h.ServeMedia)
+
+	key := "posts/user-1/550e8400-e29b-41d4-a716-446655440000.jpg"
+	content := "fake-image-bytes"
+	require.NoError(t, store.PutObject(t.Context(), key, strings.NewReader(content), int64(len(content)), "image/jpeg"))
+
+	token := testAccessToken(t, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/media/file?key="+key, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/jpeg", w.Header().Get("Content-Type"))
+	assert.Equal(t, "16", w.Header().Get("Content-Length"))
+	assert.Equal(t, "public, max-age=86400", w.Header().Get("Cache-Control"))
+	assert.Equal(t, content, w.Body.String())
+}
+
+func TestMediaServeMediaNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := storage.NewMemoryMediaStore("")
+	h := &MediaHandler{Store: store}
+
+	r := gin.New()
+	r.GET("/media/file", auth.AuthRequired(), h.ServeMedia)
+
+	token := testAccessToken(t, "user-1")
+
+	req := httptest.NewRequest(http.MethodGet, "/media/file?key=posts/user-1/550e8400-e29b-41d4-a716-446655440001.jpg", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
 func testAccessToken(t *testing.T, userID string) string {
 	t.Helper()
 	os.Setenv("JWT_SECRET", "test-jwt-secret-for-media-tests")

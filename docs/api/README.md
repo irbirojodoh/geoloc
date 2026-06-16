@@ -42,6 +42,7 @@ All `/api/v1/*` endpoints require authentication.
 | [Direct messages](./dm.md) | E2EE DMs: `/api/v1/dm/*` (ciphertext only); SSE on `dm:{userId}` |
 | [Search](./search.md) | `GET /api/v1/search`, `/api/v1/search/nearby`, `/api/v1/autocomplete`, legacy `/api/v1/search/users` |
 | [Geocode](./geocode.md) | `GET /api/v1/geocode/address` |
+| [Media & Upload](./media.md) | `POST /api/v1/upload/*`, `/api/v1/media/*` |
 
 ## Response Format
 

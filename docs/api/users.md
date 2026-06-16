@@ -73,12 +73,14 @@ Same response as Get User Profile.
 **Endpoint:** `POST /api/v1/upload/avatar`
 
 **Request:** `multipart/form-data`
-- `file`: Image file (max 5MB)
+- `file`: Image file (max 10MB)
 
 **Response:** `200 OK`
 ```json
 {
-  "url": "http://localhost:8080/uploads/avatars/abc123.jpg"
+  "message": "Avatar uploaded",
+  "key": "avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
+  "url": "http://localhost:8080/api/v1/media/file?key=avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
 }
 ```
 

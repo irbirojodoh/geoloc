@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -29,6 +31,7 @@ func RegisterMediaRoutes(api *gin.RouterGroup, h *MediaHandler) {
 		media.GET("/sign", h.SignURL)
 		media.POST("/upload-url", h.UploadURL)
 		media.DELETE("/object", h.DeleteObject)
+		media.GET("/file", h.ServeMedia)
 	}
 }
 
@@ -128,6 +131,31 @@ func (h *MediaHandler) DeleteObject(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Object deleted"})
+}
+
+// ServeMedia streams the private media object to the response.
+func (h *MediaHandler) ServeMedia(c *gin.Context) {
+	key := strings.TrimSpace(c.Query("key"))
+	if err := storage.ValidateKey(key); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid key"})
+		return
+	}
+
+	body, size, contentType, err := h.Store.GetObject(c.Request.Context(), key)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "File not found"})
+		return
+	}
+	defer body.Close()
+
+	c.Header("Content-Type", contentType)
+	if size > 0 {
+		c.Header("Content-Length", fmt.Sprintf("%d", size))
+	}
+	// Add Cache-Control for client browser optimization
+	c.Header("Cache-Control", "public, max-age=86400") // 24 hours caching
+
+	_, _ = io.Copy(c.Writer, body)
 }
 
 // ResolveUserMediaURLs populates resolved media URLs on a user for API responses.

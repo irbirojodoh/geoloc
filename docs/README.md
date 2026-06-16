@@ -19,6 +19,7 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 - [Direct messages (E2EE)](./api/dm.md) - Encrypted DMs and real-time delivery
 - [Push notification testing](./testing-push-notifications.md) - FCM / Postman local testing
 - [Search](./api/search.md) - Elasticsearch search, indexing pipeline, and backfill
+- [Media & Upload](./api/media.md) - Server-side and presigned R2 uploads and private serving
 
 ### Architecture
 - [System Overview](./architecture/overview.md) - High-level architecture

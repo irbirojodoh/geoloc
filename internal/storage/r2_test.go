@@ -53,16 +53,17 @@ func TestKeyFromStoredValue(t *testing.T) {
 	assert.Equal(t, "avatars/u1/f.jpg", KeyFromStoredValue("https://cdn.example.com/avatars/u1/f.jpg", domain))
 }
 
-func TestResolveMediaURLWithPublicDomain(t *testing.T) {
-	store := NewMemoryMediaStore("https://cdn.example.com")
+func TestResolveMediaURLWithProxy(t *testing.T) {
+	t.Setenv("BASE_URL", "https://api.geoloc.app")
+	store := NewMemoryMediaStore("")
 	key := "avatars/user-1/test.jpg"
 	require.NoError(t, store.PutObject(t.Context(), key, strings.NewReader("data"), 4, "image/jpeg"))
 
 	url := ResolveMediaURL(store, key)
-	assert.Equal(t, "https://cdn.example.com/avatars/user-1/test.jpg", url)
+	assert.Equal(t, "https://api.geoloc.app/api/v1/media/file?key=avatars/user-1/test.jpg", url)
 
 	stored := StoredMediaValue(store, key)
-	assert.Equal(t, url, stored)
+	assert.Equal(t, "avatars/user-1/test.jpg", stored)
 }
 
 func TestResolveMediaURLEmpty(t *testing.T) {

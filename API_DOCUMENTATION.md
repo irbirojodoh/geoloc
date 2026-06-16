@@ -1112,45 +1112,113 @@ This endpoint uses **cursor-based pagination**.
 
 ---
 
-### Upload
+### Media & Upload
 
-#### Upload Avatar
+All media assets are stored privately in Cloudflare R2 and served securely by proxying them through the Go API.
 
+#### 1. Server-Side Proxy Upload
+
+##### Upload Avatar
 **Endpoint:** `POST /api/v1/upload/avatar`
-
 **Content-Type:** `multipart/form-data`
 
 | Field | Type | Constraints |
 |-------|------|-------------|
-| file | file | Max 5MB, JPEG/PNG/GIF/WebP |
+| file | file | Max 10MB, JPEG/PNG/GIF/WebP |
 
 **Success Response:** `200 OK`
 ```json
 {
   "message": "Avatar uploaded",
-  "filename": "avatars/abc123.jpg",
-  "url": "http://localhost:8080/uploads/avatars/abc123.jpg"
+  "key": "avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
+  "url": "http://localhost:8080/api/v1/media/file?key=avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
 }
 ```
 
-#### Upload Post Media
-
-**Endpoint:** `POST /api/v1/upload/post`
-
+##### Upload Cover Image
+**Endpoint:** `POST /api/v1/upload/cover`
 **Content-Type:** `multipart/form-data`
 
 | Field | Type | Constraints |
 |-------|------|-------------|
-| file | file | Max 50MB, JPEG/PNG/GIF/WebP/MP4/MOV |
+| file | file | Max 10MB, JPEG/PNG/GIF/WebP |
+
+**Success Response:** `200 OK`
+```json
+{
+  "message": "Cover image uploaded",
+  "key": "covers/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
+  "url": "http://localhost:8080/api/v1/media/file?key=covers/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+}
+```
+
+##### Upload Post Media
+**Endpoint:** `POST /api/v1/upload/post`
+**Content-Type:** `multipart/form-data`
+
+| Field | Type | Constraints |
+|-------|------|-------------|
+| file | file | Max 10MB, JPEG/PNG/GIF/WebP |
 
 **Success Response:** `200 OK`
 ```json
 {
   "message": "Media uploaded",
-  "filename": "posts/xyz789.mp4",
-  "url": "http://localhost:8080/uploads/posts/xyz789.mp4",
-  "media_type": "video",
-  "extension": ".mp4"
+  "key": "posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
+  "url": "http://localhost:8080/api/v1/media/file?key=posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+}
+```
+
+#### 2. Client-Side Direct Upload via Presigned URL
+
+##### Get Presigned Upload URL
+Request a temporary (10-minute validity) presigned PUT URL to upload files directly from client to Cloudflare R2.
+**Endpoint:** `POST /api/v1/media/upload-url`
+**Request Body:**
+```json
+{
+  "folder": "posts",
+  "content_type": "image/png",
+  "filename": "pic.png"
+}
+```
+**Success Response:** `200 OK`
+```json
+{
+  "upload_url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/posts/...",
+  "key": "posts/user-123/550e8400-e29b-41d4-a716-446655440000.png",
+  "expires_at": "2026-06-16T12:45:00Z"
+}
+```
+
+#### 3. Serving Media
+
+##### Serve Private File
+All media key references are resolved to this route, which validates the user's login and streams the file from R2.
+**Endpoint:** `GET /api/v1/media/file?key=...`
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| key | string | Yes | Object key, e.g. `posts/user-123/uuid.jpg` |
+
+**Headers Forwarded:**
+- `Content-Type`: Matched to original file format
+- `Content-Length`: Matched to original file size
+- `Cache-Control`: `public, max-age=86400`
+
+#### 4. Deletion
+
+##### Delete Private Object
+**Endpoint:** `DELETE /api/v1/media/object?key=...`
+**Query Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| key | string | Yes | Object key to delete |
+
+> Note: Access check is performed. Users can only delete objects containing their own `userID` in the key.
+```json
+{
+  "message": "Object deleted"
 }
 ```
 
@@ -1291,5 +1359,8 @@ When rate limited, you'll receive:
 | `CASSANDRA_KEYSPACE` | `geoloc` | Keyspace name |
 | `JWT_SECRET` | (default) | JWT signing secret |
 | `PORT` | `8080` | Server port |
-| `UPLOAD_PATH` | `./uploads` | Upload directory |
-| `BASE_URL` | `http://localhost:8080` | Base URL for uploads |
+| `BASE_URL` | `http://localhost:8080` | Base URL used to prefix proxied media links |
+| `R2_ACCOUNT_ID` | (default) | Cloudflare account ID for storage |
+| `R2_ACCESS_KEY_ID` | (default) | Cloudflare R2 Access Key |
+| `R2_SECRET_ACCESS_KEY` | (default) | Cloudflare R2 Secret Access Key |
+| `R2_BUCKET_NAME` | `geoloc-media` | Cloudflare R2 Bucket name |

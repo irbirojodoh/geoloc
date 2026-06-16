@@ -68,7 +68,7 @@ func TestUserRepository_Integration(t *testing.T) {
 		user, _ := repo.CreateUser(ctx, req)
 
 		// Perform Update
-		updatedUser, err := repo.UpdateUser(ctx, user.ID, "New Name", "New Bio", "http://new.pic")
+		updatedUser, err := repo.UpdateUser(ctx, user.ID, "New Name", "New Bio", "", "http://new.pic", "")
 		require.NoError(t, err)
 
 		// Assert return value

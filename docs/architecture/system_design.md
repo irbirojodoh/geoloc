@@ -73,9 +73,9 @@ Retrieving the feed is the most critical and frequent operation. It must be blaz
 
 Creating a post triggers a complex set of background events to alert nearby users.
 
-1. **Upload**: Client uploads an image via `/api/v1/upload/post` and receives a URL.
-2. **Creation**: Client sends `POST /api/v1/posts` with the image URL and coordinates.
-3. **Database Write**: Go API writes the post to `posts_by_id`, `posts_by_user`, and `posts_by_geohash` tables in Cassandra.
+1. **Upload**: Client uploads an image via `/api/v1/upload/post` and receives a proxied proxy/relay media URL (`/api/v1/media/file?key=...`).
+2. **Creation**: Client sends `POST /api/v1/posts` with the image URL (or raw key) and coordinates.
+3. **Database Write**: Go API extracts/normalizes the key to write to `posts_by_id`, `posts_by_user`, and `posts_by_geohash` tables in Cassandra.
 4. **Event Dispatch**: The API instantly returns `201 Created` to the client. In the background, it publishes a `NearbyFanoutJob` to Kafka and a `PostCreatedEvent` to `posts.created` for search indexing (when `KAFKA_BROKERS` is set).
 5. **Nearby Processing**: The `notif-nearby-fanout` Kafka consumer reads the job. It calculates the 9 adjacent geohashes and queries Cassandra (`location_follows` and active users) to find who is tracking that area.
 6. **Individual Alerts**: For every matching user, the consumer produces a distinct `NotificationEvent` back into Kafka.

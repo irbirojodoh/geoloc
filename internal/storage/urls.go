@@ -1,21 +1,14 @@
 package storage
 
 import (
+	"fmt"
+	"os"
 	"strings"
-	"time"
 )
 
 // StoredMediaValue returns the value to persist in Cassandra.
-// Uses the public CDN URL when configured, otherwise the raw object key.
+// Always returns the raw key to ensure we don't hardcode full domains in the DB.
 func StoredMediaValue(store MediaStore, key string) string {
-	if key == "" {
-		return ""
-	}
-	if store != nil {
-		if url := store.PublicURL(key); url != "" {
-			return url
-		}
-	}
 	return key
 }
 
@@ -30,17 +23,12 @@ func ResolveMediaURL(store MediaStore, value string) string {
 	if !IsMediaKey(value) {
 		return value
 	}
-	if store == nil {
-		return ""
+
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
 	}
-	if url := store.PublicURL(value); url != "" {
-		return url
-	}
-	signed, err := store.PresignGetURL(value, time.Hour)
-	if err != nil {
-		return ""
-	}
-	return signed
+	return fmt.Sprintf("%s/api/v1/media/file?key=%s", strings.TrimSuffix(baseURL, "/"), value)
 }
 
 // ResolveMediaURLs resolves a slice of stored media values.

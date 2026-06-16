@@ -94,7 +94,7 @@ func main() {
 			INSERT INTO users (id, username, email, full_name, bio, password_hash, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			userID, username, username+"@example.com", fullNames[i], bios[i],
-			"$sha3$hashed_password", time.Now(), time.Now(),
+			"$2a$10$YPSUXZ.rnbnW0jIG9MRRHuSvMSGd2iu3VQm5wTanHsEXUR4TPTiHS", time.Now(), time.Now(),
 		).Exec()
 
 		if err != nil {

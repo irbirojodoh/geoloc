@@ -199,6 +199,7 @@ func (r *UserRepository) GetUserByUsername(ctx context.Context, username string)
 		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, cover_image_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE username = ?
+		ALLOW FILTERING
 	`, username).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
 		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.CoverImageURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,
@@ -228,6 +229,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
 		SELECT id, username, email, full_name, bio, phone_number, profile_picture_url, cover_image_url, password_hash, is_deleted, created_at, updated_at
 		FROM users
 		WHERE email = ?
+		ALLOW FILTERING
 	`, email).WithContext(ctx).Scan(
 		&userID, &user.Username, &user.Email, &user.FullName,
 		&user.Bio, &user.PhoneNumber, &user.ProfilePictureURL, &user.CoverImageURL, &user.PasswordHash, &user.IsDeleted, &user.CreatedAt, &user.UpdatedAt,

@@ -1,5 +1,4 @@
 package search
-package search
 
 import (
 	"math"
@@ -162,19 +161,19 @@ func TestRankPosts_NoGeoContext(t *testing.T) {
 
 func TestHaversineDistance(t *testing.T) {
 	// New York to New York = 0
-	d := haversineDistance(40.7128, -74.0060, 40.7128, -74.0060)
+	d := HaversineDistance(40.7128, -74.0060, 40.7128, -74.0060)
 	if math.Abs(d) > 0.001 {
 		t.Errorf("expected 0 distance, got %.2f", d)
 	}
 
 	// New York to Los Angeles ~3944 km
-	d = haversineDistance(40.7128, -74.0060, 34.0522, -118.2437)
+	d = HaversineDistance(40.7128, -74.0060, 34.0522, -118.2437)
 	if d < 3900 || d > 4000 {
 		t.Errorf("expected ~3944 km, got %.2f", d)
 	}
 
 	// London to Paris ~344 km
-	d = haversineDistance(51.5074, -0.1278, 48.8566, 2.3522)
+	d = HaversineDistance(51.5074, -0.1278, 48.8566, 2.3522)
 	if d < 330 || d > 360 {
 		t.Errorf("expected ~344 km, got %.2f", d)
 	}

@@ -98,23 +98,25 @@ Endpoints for creating, reading, and interacting with posts.
 
 ## Upload Post Media
 
-Upload images/videos before creating a post.
+Upload images before creating a post.
 
 **Endpoint:** `POST /api/v1/upload/post`
 
 **Request:** `multipart/form-data`
-- `file`: Image or video file (max 50MB)
+- `file`: Image file (max 10MB)
 
 **Response:** `200 OK`
 ```json
 {
-  "url": "http://localhost:8080/uploads/posts/abc123.jpg"
+  "message": "Media uploaded",
+  "key": "posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
+  "url": "http://localhost:8080/api/v1/media/file?key=posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
 }
 ```
 
 ## Media Constraints
 
-| Type | Max Size | Max Count |
-|------|----------|-----------|
-| Images | 50MB each | 4 per post |
-| Videos | 50MB each | 1 per post |
+| Type | Max Size | Max Count | Allowed Mime-Types |
+|------|----------|-----------|--------------------|
+| Images | 10MB each | 4 per post | JPEG, PNG, GIF, WebP |
+| Videos | *Not Supported* | — | — |

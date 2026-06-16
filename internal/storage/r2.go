@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ type MediaStore interface {
 	PresignGetURL(key string, expiry time.Duration) (string, error)
 	PresignPutURL(key string, expiry time.Duration, contentType string) (string, error)
 	PutObject(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
+	GetObject(ctx context.Context, key string) (io.ReadCloser, int64, string, error)
 	DeleteObject(ctx context.Context, key string) error
 	PublicURL(key string) string
 	PublicDomain() string
@@ -137,6 +139,30 @@ func (s *R2Store) PutObject(ctx context.Context, key string, body io.Reader, siz
 	return nil
 }
 
+func (s *R2Store) GetObject(ctx context.Context, key string) (io.ReadCloser, int64, string, error) {
+	if err := ValidateKey(key); err != nil {
+		return nil, 0, "", err
+	}
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("get object: %w", err)
+	}
+
+	var size int64
+	if out.ContentLength != nil {
+		size = *out.ContentLength
+	}
+	var contentType string
+	if out.ContentType != nil {
+		contentType = *out.ContentType
+	}
+
+	return out.Body, size, contentType, nil
+}
+
 func (s *R2Store) DeleteObject(ctx context.Context, key string) error {
 	if err := ValidateKey(key); err != nil {
 		return err
@@ -179,6 +205,10 @@ func (n *NoopMediaStore) PresignPutURL(string, time.Duration, string) (string, e
 
 func (n *NoopMediaStore) PutObject(context.Context, string, io.Reader, int64, string) error {
 	return ErrStorageNotConfigured
+}
+
+func (n *NoopMediaStore) GetObject(context.Context, string) (io.ReadCloser, int64, string, error) {
+	return nil, 0, "", ErrStorageNotConfigured
 }
 
 func (n *NoopMediaStore) DeleteObject(context.Context, string) error {
@@ -239,6 +269,26 @@ func (m *MemoryMediaStore) PutObject(_ context.Context, key string, body io.Read
 	}
 	m.objects[key] = data
 	return nil
+}
+
+func (m *MemoryMediaStore) GetObject(_ context.Context, key string) (io.ReadCloser, int64, string, error) {
+	if err := ValidateKey(key); err != nil {
+		return nil, 0, "", err
+	}
+	data, ok := m.objects[key]
+	if !ok {
+		return nil, 0, "", fmt.Errorf("object not found")
+	}
+	// Default to jpeg or guess based on key extension
+	contentType := "image/jpeg"
+	if strings.HasSuffix(key, ".png") {
+		contentType = "image/png"
+	} else if strings.HasSuffix(key, ".webp") {
+		contentType = "image/webp"
+	} else if strings.HasSuffix(key, ".gif") {
+		contentType = "image/gif"
+	}
+	return io.NopCloser(bytes.NewReader(data)), int64(len(data)), contentType, nil
 }
 
 func (m *MemoryMediaStore) DeleteObject(_ context.Context, key string) error {
