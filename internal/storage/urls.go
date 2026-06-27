@@ -1,10 +1,12 @@
 package storage
 
 import (
-	"fmt"
-	"os"
 	"strings"
+	"time"
 )
+
+// PresignGetExpiry is how long presigned GET URLs remain valid in API responses.
+const PresignGetExpiry = 15 * time.Minute
 
 // StoredMediaValue returns the value to persist in Cassandra.
 // Always returns the raw key to ensure we don't hardcode full domains in the DB.
@@ -12,7 +14,7 @@ func StoredMediaValue(store MediaStore, key string) string {
 	return key
 }
 
-// ResolveMediaURL returns a usable URL for a stored key or URL value.
+// ResolveMediaURL returns a presigned GET URL for a stored R2 key, or the value unchanged for external URLs.
 func ResolveMediaURL(store MediaStore, value string) string {
 	if value == "" {
 		return ""
@@ -23,12 +25,14 @@ func ResolveMediaURL(store MediaStore, value string) string {
 	if !IsMediaKey(value) {
 		return value
 	}
-
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:8080"
+	if store == nil {
+		return ""
 	}
-	return fmt.Sprintf("%s/api/v1/media/file?key=%s", strings.TrimSuffix(baseURL, "/"), value)
+	url, err := store.PresignGetURL(value, PresignGetExpiry)
+	if err != nil {
+		return ""
+	}
+	return url
 }
 
 // ResolveMediaURLs resolves a slice of stored media values.

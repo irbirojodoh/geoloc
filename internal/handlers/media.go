@@ -14,10 +14,7 @@ import (
 	"social-geo-go/internal/storage"
 )
 
-const (
-	mediaSignExpiry   = 15 * time.Minute
-	mediaUploadExpiry = 10 * time.Minute
-)
+const mediaUploadExpiry = 10 * time.Minute
 
 // MediaHandler serves authenticated media access endpoints.
 type MediaHandler struct {
@@ -43,8 +40,8 @@ func (h *MediaHandler) SignURL(c *gin.Context) {
 		return
 	}
 
-	expiresAt := time.Now().UTC().Add(mediaSignExpiry)
-	url, err := h.Store.PresignGetURL(key, mediaSignExpiry)
+	expiresAt := time.Now().UTC().Add(storage.PresignGetExpiry)
+	url, err := h.Store.PresignGetURL(key, storage.PresignGetExpiry)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to sign URL"})
 		return

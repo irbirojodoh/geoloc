@@ -1114,9 +1114,11 @@ This endpoint uses **cursor-based pagination**.
 
 ### Media & Upload
 
-All media assets are stored privately in Cloudflare R2 and served securely by proxying them through the Go API.
+All media assets are stored privately in Cloudflare R2. Stored object keys in API responses are resolved to **presigned GET URLs** (15-minute validity). Clients fetch media **directly from R2**; the Go API does not proxy download traffic.
 
-#### 1. Server-Side Proxy Upload
+See [docs/api/media.md](docs/api/media.md) for full details.
+
+#### 1. Server-Side Upload
 
 ##### Upload Avatar
 **Endpoint:** `POST /api/v1/upload/avatar`
@@ -1131,7 +1133,7 @@ All media assets are stored privately in Cloudflare R2 and served securely by pr
 {
   "message": "Avatar uploaded",
   "key": "avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
-  "url": "http://localhost:8080/api/v1/media/file?key=avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+  "url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/avatars/user-123/550e8400-e29b-41d4-a716-446655440000.jpg?X-Amz-Algorithm=..."
 }
 ```
 
@@ -1148,7 +1150,7 @@ All media assets are stored privately in Cloudflare R2 and served securely by pr
 {
   "message": "Cover image uploaded",
   "key": "covers/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
-  "url": "http://localhost:8080/api/v1/media/file?key=covers/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+  "url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/covers/user-123/550e8400-e29b-41d4-a716-446655440000.jpg?X-Amz-Algorithm=..."
 }
 ```
 
@@ -1165,7 +1167,7 @@ All media assets are stored privately in Cloudflare R2 and served securely by pr
 {
   "message": "Media uploaded",
   "key": "posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
-  "url": "http://localhost:8080/api/v1/media/file?key=posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+  "url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg?X-Amz-Algorithm=..."
 }
 ```
 
@@ -1191,20 +1193,25 @@ Request a temporary (10-minute validity) presigned PUT URL to upload files direc
 }
 ```
 
-#### 3. Serving Media
+#### 3. Serving Media (Presigned GET)
 
-##### Serve Private File
-All media key references are resolved to this route, which validates the user's login and streams the file from R2.
-**Endpoint:** `GET /api/v1/media/file?key=...`
-**Query Parameters:**
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| key | string | Yes | Object key, e.g. `posts/user-123/uuid.jpg` |
+Stored R2 keys in `profile_picture_url`, `cover_image_url`, and `media_urls` are automatically resolved to presigned GET URLs in feed, post, profile, search, and comment responses.
 
-**Headers Forwarded:**
-- `Content-Type`: Matched to original file format
-- `Content-Length`: Matched to original file size
-- `Cache-Control`: `public, max-age=86400`
+##### Refresh presigned GET URL
+**Endpoint:** `GET /api/v1/media/sign?key=...`
+
+**Success Response:** `200 OK`
+```json
+{
+  "url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/posts/user-123/uuid.jpg?X-Amz-Algorithm=...",
+  "expires_at": "2026-06-27T13:00:00Z"
+}
+```
+
+Presigned GET URLs expire after **15 minutes**. Refetch the parent API resource or call `/media/sign` to refresh.
+
+##### Legacy proxy (deprecated)
+`GET /api/v1/media/file?key=...` still streams through the API for backward compatibility. Prefer presigned URLs from API responses.
 
 #### 4. Deletion
 
@@ -1359,7 +1366,7 @@ When rate limited, you'll receive:
 | `CASSANDRA_KEYSPACE` | `geoloc` | Keyspace name |
 | `JWT_SECRET` | (default) | JWT signing secret |
 | `PORT` | `8080` | Server port |
-| `BASE_URL` | `http://localhost:8080` | Base URL used to prefix proxied media links |
+| `BASE_URL` | `http://localhost:8080` | Public API base URL (logging/deployment; not used for media URL resolution) |
 | `R2_ACCOUNT_ID` | (default) | Cloudflare account ID for storage |
 | `R2_ACCESS_KEY_ID` | (default) | Cloudflare R2 Access Key |
 | `R2_SECRET_ACCESS_KEY` | (default) | Cloudflare R2 Secret Access Key |

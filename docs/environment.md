@@ -32,11 +32,11 @@ Copy `.env.example` as a starting point.
 
 ## Storage (Cloudflare R2)
 
-Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. The R2 bucket should be kept completely **private** (disable Public Access and Custom Domains in the Cloudflare dashboard). 
+Media uploads (avatars, cover images, post images) are stored in Cloudflare R2. The bucket should remain **private** (disable Public Access in the Cloudflare dashboard).
 
-The Go API serves as a secure proxy to relay media files, meaning `R2_PUBLIC_DOMAIN` is no longer used. Instead, `BASE_URL` determines the path prefix for resolving proxied media URLs.
+API responses resolve stored object keys to **presigned GET URLs** (15-minute TTL). Clients download media **directly from R2**; the Go API does not proxy read traffic. Uploads use either server-side multipart endpoints or presigned PUT URLs.
 
-When `R2_ACCOUNT_ID` is not set, the API logs a warning and fallback media store throws errors.
+When `R2_ACCOUNT_ID` is not set, the API logs a warning and the fallback media store returns errors for upload/presign operations.
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -44,7 +44,8 @@ When `R2_ACCOUNT_ID` is not set, the API logs a warning and fallback media store
 | `R2_ACCESS_KEY_ID` | Yes (prod) | R2 API token access key ID |
 | `R2_SECRET_ACCESS_KEY` | Yes (prod) | R2 API token secret |
 | `R2_BUCKET_NAME` | No | Bucket name (default: `geoloc-media`) |
-| `BASE_URL` | Yes (prod) | Base URL for resolving local proxy links (e.g. `https://api.yourdomain.com`) |
+
+`R2_PUBLIC_DOMAIN` and `BASE_URL` are **not** used for media URL resolution. `BASE_URL` remains available for general deployment configuration and client documentation.
 
 **Example (production):**
 

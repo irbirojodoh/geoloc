@@ -109,9 +109,12 @@ Initialize a Flutter project for **Geoloc**, a hyper-local social media app. The
 - `GET /api/v1/search/users?q=` - Search users
 - `GET /api/v1/search/posts?q=` - Search posts
 
-**Upload**
-- `POST /api/v1/upload/avatar` - Upload avatar (max 5MB, multipart/form-data)
-- `POST /api/v1/upload/post` - Upload post media (max 50MB, multipart/form-data)
+**Upload & media** — see [docs/client/media-frontend.md](docs/client/media-frontend.md)
+- `POST /api/v1/upload/avatar` - Upload avatar (max 10MB, multipart/form-data)
+- `POST /api/v1/upload/cover` - Upload cover image (max 10MB)
+- `POST /api/v1/upload/post` - Upload post media (max 10MB)
+- `POST /api/v1/media/upload-url` - Presigned PUT for direct R2 upload
+- Display: API returns presigned R2 GET URLs (15 min); attach uploads via `avatar_key`, `cover_key`, `media_keys`
 
 **Devices (Push Notifications)**
 - `POST /api/v1/devices` - Register push token

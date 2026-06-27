@@ -110,7 +110,7 @@ Upload images before creating a post.
 {
   "message": "Media uploaded",
   "key": "posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg",
-  "url": "http://localhost:8080/api/v1/media/file?key=posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg"
+  "url": "https://<account-id>.r2.cloudflarestorage.com/geoloc-media/posts/user-123/550e8400-e29b-41d4-a716-446655440000.jpg?X-Amz-Algorithm=..."
 }
 ```
 

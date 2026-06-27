@@ -60,9 +60,9 @@ The feed endpoint returns posts near a geographic location with cursor-based pag
 | `id` | Post UUID |
 | `user_id` | Author's UUID |
 | `username` | Author's username |
-| `profile_picture_url` | Author's avatar |
+| `profile_picture_url` | Author's avatar (presigned R2 GET URL when stored as a key) |
 | `content` | Post text |
-| `media_urls` | Array of media URLs (max 4) |
+| `media_urls` | Array of media URLs, max 4 (presigned R2 GET URLs for uploaded images; external URLs pass through unchanged) |
 | `geohash` | Approximate location (5-char geohash) |
 | `location_name` | Place name (e.g., "Kukusan") |
 | `address` | Full address object |

@@ -110,10 +110,12 @@ void handleError(DioException e) {
 
 | Data | Strategy |
 |------|----------|
-| Feed posts | Cache 50 most recent, TTL 5 min |
-| User profiles | Cache visited, TTL 10 min |
+| Feed posts | Cache post text/metadata; refresh presigned `media_urls` on foreground or pull-to-refresh ([media guide](./media-frontend.md)) |
+| User profiles | Cache visited, TTL 10 min; refetch avatars when image load fails |
 | Current user | Cache until logout |
 | Search results | Don't cache |
+
+See [Media frontend guide](./media-frontend.md) for upload keys vs display URLs and presigned URL expiry.
 
 ## Optimistic Updates
 

@@ -12,7 +12,7 @@ Geoloc is designed for high scalability, real-time performance, and hyper-local 
 | **Primary Database** | **Apache Cassandra** | Distributed NoSQL datastore optimized for heavy write workloads and rapid read queries via denormalization. |
 | **Message Broker** | **Apache Kafka** | Central event bus for decoupling core operations from asynchronous background jobs (e.g., push notifications, fan-outs). |
 | **In-Memory Cache** | **Redis** | Ephemeral state management, atomic counters (likes/comments), rate limiting, and Pub/Sub for real-time SSE delivery. |
-| **Reverse Proxy** | **Caddy** | Terminating SSL/TLS, reverse proxying traffic to Go, and serving static uploaded media files. |
+| **Reverse Proxy** | **Caddy** | Terminating SSL/TLS and reverse proxying API traffic to Go. |
 | **Push Delivery** | **Firebase (FCM)** | Delivering background push notifications to iOS and Android devices. |
 | **Geocoding** | **Nominatim** | Translating coordinates into human-readable locations (reverse geocoding). |
 
@@ -73,7 +73,7 @@ Retrieving the feed is the most critical and frequent operation. It must be blaz
 
 Creating a post triggers a complex set of background events to alert nearby users.
 
-1. **Upload**: Client uploads an image via `/api/v1/upload/post` and receives a proxied proxy/relay media URL (`/api/v1/media/file?key=...`).
+1. **Upload**: Client uploads an image via `/api/v1/upload/post` (or presigned PUT via `/api/v1/media/upload-url`) and receives an object `key` plus a short-lived presigned GET `url`.
 2. **Creation**: Client sends `POST /api/v1/posts` with the image URL (or raw key) and coordinates.
 3. **Database Write**: Go API extracts/normalizes the key to write to `posts_by_id`, `posts_by_user`, and `posts_by_geohash` tables in Cassandra.
 4. **Event Dispatch**: The API instantly returns `201 Created` to the client. In the background, it publishes a `NearbyFanoutJob` to Kafka and a `PostCreatedEvent` to `posts.created` for search indexing (when `KAFKA_BROKERS` is set).

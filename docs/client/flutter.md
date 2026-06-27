@@ -202,6 +202,6 @@ Add to `ios/Runner/Info.plist`:
 
 1. **Debounce search** - Wait 300ms after typing stops
 2. **Cache feed** - Store in Hive for offline access
-3. **Lazy load images** - Use `cached_network_image`
+3. **Lazy load images** - Use `cached_network_image` (see [Media frontend guide](./media-frontend.md) — no auth headers on presigned R2 URLs)
 4. **Error handling** - Handle 401 → refresh → retry flow
 5. **Loading states** - Use shimmer skeletons

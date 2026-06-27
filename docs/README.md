@@ -19,7 +19,7 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 - [Direct messages (E2EE)](./api/dm.md) - Encrypted DMs and real-time delivery
 - [Push notification testing](./testing-push-notifications.md) - FCM / Postman local testing
 - [Search](./api/search.md) - Elasticsearch search, indexing pipeline, and backfill
-- [Media & Upload](./api/media.md) - Server-side and presigned R2 uploads and private serving
+- [Media & Upload](./api/media.md) - R2 uploads and presigned direct-to-R2 serving
 
 ### Architecture
 - [System Overview](./architecture/overview.md) - High-level architecture
@@ -35,6 +35,7 @@ Welcome to the Geoloc documentation. This folder contains comprehensive guides f
 ### Client Development
 - [Flutter Client Guide](./client/flutter.md) - Build the Flutter mobile app
 - [API Integration](./client/api-integration.md) - Best practices for clients
+- [Media (frontend)](./client/media-frontend.md) - Upload, attach keys, and display presigned URLs
 - [Notifications list (frontend Phase 1)](./client/notifications-list-frontend.md) - `GET /api/v1/notifications` implementation guide
 
 ---

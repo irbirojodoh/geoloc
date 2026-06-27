@@ -74,8 +74,8 @@
 - `GET /search/posts?q=` - Search posts
 
 **Upload**
-- `POST /upload/avatar` - Avatar (max 5MB)
-- `POST /upload/post` - Media (max 50MB)
+- `POST /upload/avatar` - Avatar (max 10MB, R2)
+- `POST /upload/post` - Post media (max 10MB, R2); see `docs/client/media-frontend.md`
 
 **Devices (Push)**
 - `POST /devices` - Register token
@@ -116,7 +116,7 @@ GET /api/v1/feed?latitude=-6.36&longitude=106.82&limit=20&cursor=<next_cursor>
 - ✅ Follow users & locations
 - ✅ Notifications
 - ✅ Search (users/posts)
-- ✅ Image/video upload (local, S3 ready)
+- ✅ Image upload via Cloudflare R2 (presigned GET/PUT URLs)
 - ✅ Rate limiting (100 req/min)
 - ✅ Push notifications (template)
 
